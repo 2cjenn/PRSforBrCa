@@ -1,0 +1,22 @@
+data:
+ database: "K:/TEU/UKB33952_Data/Data_Downloads/V8_database_duckdb0.8.1/ukb_v8.db"
+ portal:
+  HES: "K:/TEU/UKB33952_Data/Data_Portal/HES_diagnoses/20230725/duckdb0.8.1"
+  deaths: "K:/TEU/UKB33952_Data/Data_Portal/Death_Registry/20230414/duckdb0.8.1"
+ derived: "Data/Derived"
+ analysed: "Data/Analysed"
+ prs: "K:/TEU/UKB_Genetic_Data/bmrc-ukb-repo/prs/projects/htn-evangelou2018/outputs"
+ relatedness: "K:/TEU/UKB_Genetic_Data/Link_Files/33952/ukb33952_rel_s488282.dat"
+cleaning:
+ withdrawals: "K:/TEU/UKB33952_Data/Data_Downloads/Withdrawals/w33952_2023-04-25.csv"
+ renaming: "K:/TEU/UKB33952_Data/Data_Dictionary/Renaming_List_UPDATE_Sep2023_TEU.csv"
+ coding: "K:/TEU/UKB33952_Data/Data_Dictionary/Mappings/Encoding_files"
+ mapping: "K:/TEU/UKB33952_Data/Data_Dictionary/Mappings/Analysis_codings_xlsx/BrstCancer"
+outputs:
+ figures: "Scripts/Stats_Analysis/RMarkdown/Figures/Manuscript"
+ flowcharts: "Scripts/Stats_Analysis/Flowcharts"
+functions: "Scripts/Stats_Analysis/JCfunctions.R"
+scripts:
+ cleaning: "Scripts/Data_Management/Scripts_Cleaning"
+ processing: "Scripts/Data_Management/Scripts_Processing"
+

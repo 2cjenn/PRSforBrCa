@@ -1,0 +1,411 @@
+---
+title: "Prepare data inputs for Tyrer-Cuzick software v8"
+author: "Jennifer Collister"
+date: "`r Sys.Date()`"
+output: 
+  word_document:
+      fig_width: 8
+      fig_height: 5
+      reference_docx: "K:/TEU/TEU_Guides/TEU_DocStyle_Rmd_2020.dotx"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include=TRUE, echo=FALSE)
+
+library(kableExtra)
+library(knitr)
+library(yaml)
+library(here)
+library(ggplot2)
+library(tidyr)
+library(readr)
+library(dplyr)
+library(glue)
+
+# Pretty plots
+library(etm)
+
+# Pretty tables
+library(arsenal)
+library(pander)
+
+# Survival 
+library(survival)
+library(survminer)
+
+# Flowchart
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(svglite)
+library(rsvg)
+library(png)
+
+# Set the root directory to the project directory (otherwise knitr works in the directory of the Rmd file by default)
+knitr::opts_knit$set(root.dir = here::here())
+
+# Load the project config file for filepaths etc
+config = yaml.load_file(here::here("./config.yml"))
+source(here::here(file.path(config$functions)))
+
+#-------------------------------------------------------------------------------------------------------------------
+
+# Output Formatting
+
+# Specify the markdown format for knitr tables, otherwise they're not compatible with kableExtra
+options(knitr.kable.NA='', knitr.table.format = "markdown")
+options(kableExtra.auto_format = FALSE)
+
+# Pander options
+panderOptions('table.alignment.default', function(df)
+    ifelse(sapply(df, is.numeric), 'right', 'left'))
+panderOptions('table.split.table', Inf)
+panderOptions('big.mark', ",")
+panderOptions('keep.trailing.zeros', TRUE)
+panderOptions('missing', '')
+
+# Set formatting options for tableby objects
+my_controls <- tableby.control(
+    test = F,
+    total = T,
+    #numeric.test = "kwt", cat.test = "chisq",
+    numeric.stats = c("meansd", "Nmiss"), #"medianq1q3", 
+    cat.stats = c("countpct", "Nmiss"),
+    stats.labels = list(
+      meansd = "Mean (SD)",
+      # medianq1q3 = "Median (IQR)",
+      # range = "Min - Max",
+      Nmiss = "Missing",
+      Npct="N (Pct)"
+    ),
+    digits = 2L
+  )
+
+#-------------------------------------------------------------------------------------------------------
+# Setup
+
+figure <- 1
+table <- 1
+suppfig <- 1
+footnote_no <- 1
+
+```
+
+
+```{r derive-data, include=FALSE, cache=TRUE}
+
+source(file.path(config$scripts$cleaning, "dataset_generator.R"))
+
+exclusions <- function(data) {
+  
+  excl$initial <<- nrow(data)
+  
+  # Restrict to females (by self-report and genetic)
+  data <- data[data$BaC_Sex == "Female",]
+  data <- data[data$GeP_Sex == "Female" & !is.na(data$GeP_Sex),]
+  excl$sex <<- nrow(data)
+  
+  # Restrict to post-menopausal women
+  data <- data[!is.na(data$FSF_MenopauseStatus) & data$FSF_MenopauseStatus == "Yes",]
+  excl$meno <<- nrow(data)
+  
+  # Restrict to White British (genetically)
+  # data <- data[!is.na(data$GeP_ethnic),]
+  excl$whitebrit <<- nrow(data)
+  
+  # Exclude those outside the 40-70 age range
+  data <- data[!is.na(data$TEU_BaC_AgeAtRec) & data$TEU_BaC_AgeAtRec >= 40 & data$TEU_BaC_AgeAtRec < 70,]
+  excl$agerange <<- nrow(data)
+  # Restrict population to those for whom we have PRS scores available
+  data <- data[!is.na(data$PRS_bc_std),]
+  excl$prs <<- nrow(data)
+  # Exclude women with 20+ sisters as the TC model can't handle it
+  data <- data[is.na(data$TC_NSisters) | data$TC_NSisters < 20,]
+  # Exclude those who didn't answer HRT use
+  data <- data[data$TC_HRT_raw != "Unanswered",]
+  # Or who reported impossible HRT dates
+  data <- data[is.na(data$FSF_HRTAgeStop) | data$FSF_HRTAgeStop <= ceiling(data$TEU_BaC_AgeAtRec),]
+  excl$hrt <<- nrow(data)
+  
+  # Exclude prior breast cancer
+  data <- data[is.na(data$BrCaDx_Prevalent),]
+  data <- data[is.na(data$VI_BrCa),]
+  excl$brca <<- nrow(data)
+  # Prior mastectomy
+  data <- data[data$TEU_HES_Mast_prev == "No",]
+  excl$mast <<- nrow(data)
+  # Prior carcinoma in situ
+  data <- data[is.na(data$BrCaInSitu_Prevalent),]
+  excl$cainsitu <<- nrow(data)
+  
+
+  return(data)
+}
+
+excl <- list(initial=0)
+
+data <-
+  evalWithMemoization(
+    derive_variables(
+      database = config$data$database,
+      field_definitions = TEU_SPECS$TyrerCuzick,
+      exclusions = exclusions
+    ),
+    key = c(TEU_SPECS$TyrerCuzick, exclusions)
+  )
+
+pretty_names <- pretty_switch(field_definitions=TEU_SPECS$TyrerCuzick)
+pretty_list <- pretty_switch(field_definitions=TEU_SPECS$TyrerCuzick, return_type="list")
+
+```
+
+
+
+```{r}
+
+table(data$TC_NSisters, useNA='ifany')
+
+tcify <- function(data, nsis) {
+ 
+  data <- data[data$TC_NSisters == nsis,]
+  
+  # Map data to correct format for Tyrer-Cuzick v8 model specification
+  tc_data <- data %>% transmute(
+    v1_ID = ID,
+    v2_Age = floor(replace_na(TEU_BaC_AgeAtRec, -99)),
+    v3_AgeMenarche = replace_na(FSF_AgeMenarche, -99),
+    v4_Parity = dplyr::case_when(
+      TC_Parity == "Nulliparous" ~ 0,
+      TC_Parity == "Parous" ~ 1,
+      TC_Parity == "Missing" ~ 2),
+    v5_AgeFirstBirth = dplyr::case_when(
+      TC_Parity == "Nulliparous" ~ 0,
+      TC_Parity == "Missing" ~ 0,
+      TC_Parity == "Parous" & !is.na(AgeFirstBirth) ~ as.numeric(AgeFirstBirth),
+      TC_Parity == "Parous" & is.na(AgeFirstBirth) ~ -99
+    ),
+    v6_MenoStatus = 2, # we restricted to post-menopausal at baseline
+    v7_MenoAge = replace_na(FSF_AgeMenopause, -99), # All women post-menopausal, so no need to handle unknown menopause status
+    v8_Height = replace_na(Height, -99),
+    v9_Weight = replace_na(Weight, -99),
+    v10_Hyperplasia = 0, # missing or unknown
+    v11_AtypHyperplasia = dplyr::case_when(
+      AtypicalHyperplasia == "Yes" ~ 1,
+      TRUE ~ 0
+    ),
+    v12_LCIS = 0, # missing or unknown - we excluded all CIS at baseline, very few were LCIS
+    v13_NOTINUSE = 0, #
+    v14_OvarianCancer = dplyr::case_when(
+      TC_OvarianCaDx=="Yes" ~ 1,
+      TC_OvarianCaDx=="No" ~ 0,
+      ),
+    v15_OvarianAge = floor(replace_na(TC_OvarianCaAge, -99)),
+    v16_Ashkenazi = 0, # missing or unknown
+    v17_HRTuse = dplyr::case_when(
+      TC_HRT_imputed == "Never" ~ 0,
+      TC_HRT_imputed == "Previous user (more than 5 years ago)" ~ 1,
+      TC_HRT_imputed == "Previous user (less than 5 years ago)" ~ 2,
+      TC_HRT_imputed == "Current" ~ 3
+    ),
+    v18_HRTType = 1, # missing or unknown
+    v19_HRTDuration = round(replace_na(FSF_HRTDuration, 0),1),
+    v20_HRTIntended = 0, # missing or unknown
+    v21_HRTTimeSince = ifelse(!is.na(FSF_HRT_timesince) & FSF_HRT_timesince < 5,
+                              round(FSF_HRT_timesince,1), 0),
+    v22_GeneticTest = 0, # unknown
+    
+    # Family history
+    v23_FatherGenetic = 0, # unknown
+    v24_MotherBrCa = dplyr::case_when(
+      TC_MotherBrCa=="Yes" ~ 1,
+      TC_MotherBrCa=="No" ~ 0,
+      ),
+    v25_MotherBilateral = 0, # unknown
+    v26_MotherOvarian = 0,
+    v27_MotherBrCaAge = ifelse(TC_MotherBrCa == "Yes", -99, replace_na(TC_MotherAge, -99)),
+    v28_MotherBilAge = -99,
+    v29_MotherOvAge = -99,
+    v30_MotherGenetic = 0, # unknown
+    
+    # Sisters
+    v31_NSisters = replace_na(TC_NSisters, 0),
+    # This gets complicated now, different number of columns depending on number of sisters
+  )
+  
+  # This part is different depending on how many sisters
+  sisters <- data %>% transmute(
+    v32_SisterBrCa = dplyr::case_when(
+      TC_SiblingBrCa=="Yes" ~ 1,
+      TC_SiblingBrCa=="No" ~ 0,
+      ),
+    v33_SisterBilateral = 0,
+    v34_SisterOvarian = 0,
+    v35_SisterBrCaAge = -99,
+    v36_SisterBilAge = -99,
+    v37_SisterOvAge = -99,
+    v38_SisterGenetic = 0
+  )
+  
+  if(nsis == 1) {
+    tc_data <- cbind(tc_data, sisters)
+  } else if (nsis > 1) {
+    extra <- sisters %>% mutate(v32_SisterBrCa = 0)
+    for (n in c(1: (nsis-1))) {
+      colnames(extra) <- str_replace(colnames(extra),
+                                     "[0-9]+",
+                                     function(x) {return(as.numeric(x) + 7)}
+                                     )
+      sisters <- cbind(sisters, extra)
+    }
+    tc_data <- cbind(tc_data, sisters)
+  }
+  
+
+
+  # And the rest of the compulsory family history
+  morefam <- data %>% transmute(
+    # Paternal Gran
+    s2_PatGranBrCa = 0,
+    s3_PatGranBilateral = 0,
+    s4_PatGranOvarian = 0,
+    s5_PatGranBrCaAge = -99,
+    s6_PatGranBilAge = -99,
+    s7_PatGranOvAge = -99,
+    s8_PatGranGenetic = 0,
+    
+    # Maternal gran
+    s9_MatGranBrCa = 0,
+    s10_MatGranBilateral = 0,
+    s11_MatGranOvarian = 0,
+    s12_MatGranBrCaAge = -99,
+    s13_MatGranBilAge = -99,
+    s14_MatGranOvAge = -99,
+    s15_MatGranGenetic = 0,
+    
+    # Aunts
+    s16_NPatAunts = 0,
+    # s17_PatAuntBrCa = 0,
+    # s18_PatAuntBilateral = 0,
+    # s19_PatAuntOvarian = 0,
+    # s20_PatAuntBrCaAge = -99,
+    # s21_PatAuntBilAge = -99,
+    # s22_PatAuntOvAge = -99,
+    # s23_PatAuntGenetic = 0,
+    
+    # Maternal Aunts
+    pa1_NMatAunts = 0,
+    # pa2_MatAuntBrCa = 0,
+    # pa3_MatAuntBilateral = 0,
+    # pa4_MatAuntOvarian = 0,
+    # pa5_MatAuntBrCaAge = -99,
+    # pa6_MatAuntBilAge = -99,
+    # pa7_MatAuntOvAge = -99,
+    # pa8_MatAuntGenetic = 0,
+    
+    # Daughters
+    ma1_NDaughters = 0,
+    # ma2_DaughterBrCa = 0,
+    # ma3_DaughterBilateral = 0,
+    # ma4_DaughterOvarian = 0,
+    # ma5_DaughterBrCaAge = -99,
+    # ma6_DaughterBilAge = -99,
+    # ma7_DaughterOvAge = -99,
+    # ma8_DaughterGenetic = 0
+  )
+  tc_data <- cbind(tc_data, morefam)
+  
+  table3 <- data %>% transmute(
+    zero1 = nsis,
+    zero2 = 0,
+    zero3 = 0,
+    zero4 = 0,
+    zero5 = 0,
+    zero6 = 0,
+    zero7 = 0
+  ) # No participants have the optional family history data. Spec says 7 columns of 0
+  if (nsis > 0) {
+    for (sis in c(1:nsis)) {
+      table3[paste0("sis", sis)] <- 0 
+    }
+  } # Technically these columns should come after zero1 but they're all just 0 so it doesn't matter
+  tc_data <- cbind(tc_data, table3)
+  
+  v8 <- data %>% transmute(
+    t1_FatherBrCa = dplyr::case_when(
+      TC_FatherBrCa=="Yes" ~ 1,
+      TC_FatherBrCa=="No" ~ 0,
+      ), # All No but include anyway for completion
+    t2_BrotherBrCa = dplyr::case_when(
+      TC_SiblingBrCa == "Yes" & 
+        (TC_NSisters == 0 | is.na(TC_NSisters)) & 
+        (TC_NBrothers > 0 & !is.na(TC_NBrothers)) ~ 1,
+      TRUE ~ 0
+    ), # If siblings with breast cancer, no sisters, and brothers then yes, otherwise no
+    t3_DensityMeasure = 0,
+    t4_DensityValue = -99,
+    t5_PRS = 0 #round(TEU_BrCa_313_PRS_center,8)
+  )
+  
+  tc_data <- cbind(tc_data, v8)
+  return(tc_data)
+}
+
+
+nrows <- nrow(data)
+chunksize <- 15000
+start <- 1
+ordered <- data %>% # Treat NA sisters as 0
+  mutate(TC_NSisters = ifelse(is.na(TC_NSisters), 0, TC_NSisters)) %>%
+  arrange(TC_NSisters)
+
+while(start < nrows) {
+
+  end <- min(start + chunksize - 1, nrows)
+  filename <- file.path(config$data$derived, "noPRS", paste0("rows", start, "_", end, ".txt"))
+
+  chunk <- ordered[start:end,]
+  nsisters <- sort(unique(chunk$TC_NSisters))
+  nparticipants <- nrow(chunk)
+
+  header <- data.frame(col1 = c("v8", nparticipants))
+  write.table(header, file=filename, append=FALSE,
+              sep="\t", eol="\n", quote=FALSE,
+              row.names=FALSE, col.names=FALSE)
+
+  for (n in nsisters) {
+    output <- tcify(chunk, nsis=n)
+
+    write.table(output, file=filename, append=TRUE,
+              sep="\t", eol="\n", quote=FALSE,
+              row.names=FALSE, col.names=FALSE)
+  }
+  start <- end + 1
+}
+
+#-------------#
+# Run 3 times #
+#-------------#
+# t5_PRS = 0, filename "noPRS"
+# t5_PRS = TEU_BrCa_313_PRS_center, filename "withPRS/Mavaddat2019"
+# t5_PRS = TEU_BrCa_100k_PRS_center, filename = "withPRS/Fritsche2020"
+# Note that the different PRS are on different scales
+
+
+```
+
+```{r}
+# Read Tyrer-Cuzick risks output file
+
+filenames <- list.files(file.path(config$data$derived, "noPRS", "risk"), 
+                        full.names=TRUE, recursive=TRUE, include.dirs=FALSE)
+
+allrisks <- lapply(filenames, function(x){
+  read.table(x, header=FALSE, sep="\t",
+             col.names=c("ID", "nyear", "ltime_risk", "pop_ltime_risk", "brca1", "brca2"))
+  })
+
+risks <- dplyr::bind_rows(allrisks)
+
+
+```
+

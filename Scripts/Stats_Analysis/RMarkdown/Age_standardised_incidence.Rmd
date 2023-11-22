@@ -1,0 +1,377 @@
+---
+title: "Variable Exploration"
+author: "Jennifer Collister"
+date: "`r Sys.Date()`"
+output: 
+  word_document:
+      fig_width: 8
+      fig_height: 5
+      reference_docx: "K:/TEU/TEU_Guides/TEU_DocStyle_Rmd_2020.dotx"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include=TRUE, echo=FALSE, warning = FALSE, message = FALSE) 
+
+library(kableExtra)
+library(knitr)
+# library(yaml)
+library(here)
+library(ggplot2)
+library(tidyr)
+# library(readr)
+library(dplyr)
+# library(glue)
+# library(BCRA)
+
+# Pretty tables
+# library(arsenal)
+# library(pander)
+
+# Survival 
+# library(survival)
+# library(survminer)
+# library(rms)
+
+
+# Set the root directory to the project directory (otherwise knitr works in the directory of the Rmd file by default)
+knitr::opts_knit$set(root.dir = here::here())
+
+# Load the project config file for filepaths etc
+# config = yaml.load_file(here::here("./config.yml"))
+# source(here::here(file.path(config$functions)))
+
+#-------------------------------------------------------------------------------------------------------------------
+
+# Output Formatting
+
+# Specify the markdown format for knitr tables, otherwise they're not compatible with kableExtra
+options(knitr.kable.NA='', knitr.table.format = "markdown")
+options(kableExtra.auto_format = FALSE)
+
+#-------------------------------------------------------------------------------------------------------
+# Setup
+
+figure <- 1
+table <- 1
+suppfig <- 1
+footnote_no <- 1
+
+```
+
+
+```{r derive-data, include=FALSE, cache=TRUE}
+
+# source(file.path(config$scripts$cleaning, "dataset_generator.R"))
+
+exclusions <- function(data) {
+  
+  excl$initial <<- nrow(data)
+  
+  # Restrict to females (by self-report and genetic)
+  data <- data[data$BaC_Sex == "Female",]
+  data <- data[data$GeP_Sex == "Female" & !is.na(data$GeP_Sex),]
+  excl$sex <<- nrow(data)
+  
+  # Restrict to post-menopausal women
+  data <- data[!is.na(data$FSF_MenopauseStatus) & data$FSF_MenopauseStatus == "Yes",]
+  excl$meno <<- nrow(data)
+  
+  # Restrict to White British (genetically)
+  data <- data[!is.na(data$GeP_ethnic),]
+  excl$whitebrit <<- nrow(data)
+  
+  # Exclude those outside the 40-70 age range
+  data <- data[!is.na(data$TEU_BaC_AgeAtRec) & data$TEU_BaC_AgeAtRec >= 40 & data$TEU_BaC_AgeAtRec < 70,]
+  excl$agerange <<- nrow(data)
+  # Restrict population to those for whom we have PRS scores available
+  data <- data[!is.na(data$PRS_bc_std),]
+  excl$prs <<- nrow(data)
+  # Exclude women with 20+ sisters as the TC model can't handle it
+  data <- data[is.na(data$TC_NSisters) | data$TC_NSisters < 20,]
+  # Exclude those who didn't answer HRT use
+  data <- data[data$TC_HRT_raw != "Unanswered",]
+  # Or who reported impossible HRT dates
+  data <- data[is.na(data$FSF_HRTAgeStop) | data$FSF_HRTAgeStop <= ceiling(data$TEU_BaC_AgeAtRec),]
+  excl$hrt <<- nrow(data)
+  
+  # Exclude prior breast cancer
+  data <- data[is.na(data$BrCaDx_Prevalent),]
+  data <- data[is.na(data$VI_BrCa),]
+  excl$brca <<- nrow(data)
+  # Prior mastectomy
+  data <- data[data$TEU_HES_Mast_prev == "No",]
+  excl$mast <<- nrow(data)
+  # Prior carcinoma in situ
+  data <- data[is.na(data$BrCaInSitu_Prevalent),]
+  excl$cainsitu <<- nrow(data)
+
+  
+  return(data)
+}
+
+excl <- list(initial=0)
+
+# data <- derive_variables(
+#   database = config$data$database,
+#   field_definitions = TEU_SPECS$TyrerCuzick,
+#   exclusions = function(data){return(data[data$BaC_Sex == "Female" &
+#                                             data$GeP_Sex == "Female" & !is.na(data$GeP_Sex),])}
+#   )
+# saveRDS(data, "K:/TEU/PRSforBrCa/Stats_Outputs/agestdinc.rds")
+data <- readRDS("K:/TEU/PRSforBrCa/Stats_Outputs/agestdinc.rds")
+
+wholepop <- data
+analysis_pop <- exclusions(data)
+
+```
+
+
+# Age-specific and directly standardised breast cancer incidence rates
+
+> We calculated age specific and directly standardised colorectal cancer incidence rates in UK Biobank overall and for the Integrated Modelling Cohort used to derive integrated QCancer-10+PRS risk models, and compared these with Office for National Statistics 2013 cancer registry data for England (chosen as the approximate mid-point of available UK Biobank follow-up).[15](https://www.ons.gov.uk/peoplepopulationandcommunity/healthandsocialcare/conditionsanddiseases/datasets/cancerregistrationstatisticscancerregistrationstatisticsengland) Age specific rates were calculated in five year age bands between 40 and 80 years as the number of first incident colorectal cancers over the number of person years at risk. Age standardised incidence rates were calculated using the 2013 European Standard Population aged 40-80 years.[16](https://webarchive.nationalarchives.gov.uk/ukgwa/20160105231503/http://www.ons.gov.uk/ons/guide-method/user-guidance/health-and-life-events/index.html) Rates are presented per 100 000 person years at risk (supplementary methods). - Briggs2022
+
+>  Cancer Incidence Calculation 
+Whole UKB cohort CRC incidence rates were calculated based on linked registry cases, without removal of prevalent cases, to reflect registration as would occur in national data. In addition ASIRs were calculated in the Integrated Modelling Cohort, in which prevalent cases were removed and cases identified through cancer and death registry, and linked hospital inpatient data; follow-up duration was as defined in the main methods. This analysis used R packages ‘survival’ and ‘epitools’. - [Briggs et al., 2022, p. 4]
+
+The tables from Briggs2022 citations 15 and 16 are saved at K:\TEU\PRSforBrCa\Resources\referencetablearv2013c44_tcm77-410534.xls and K:\TEU\PRSforBrCa\Resources\agestandardisedmortalityratecalculationtemplateusingthe2013esp_tcm77-359944.xls respectively.
+
+## UK Biobank overall
+
+Prevalent and incident cases are included.
+
+```{r}
+
+# UKB overall (ie including prevalent cases)
+
+# Our TEU_BrCa_status and TEU_BrCa_age are generated for prevalent cases
+# So supplement with BrCaAge_Any (age at brca dx from Cancer Registry) to include the incident cases
+# Note TEU_BrCa_age is the age at which follow-up ended, ie either breast cancer dx or censoring (death by other causes, lost to followup, admin censoring)
+
+data <- wholepop %>% transmute(
+  TEU_BrCa_status = as.numeric(!is.na(BrCaAge_Any) | TEU_BrCa_status), # Include prevalent cases
+  TEU_BrCa_age = coalesce(BrCaAge_Any, TEU_BrCa_age), # Take CaR recorded age preferentially if it exists
+  TEU_BaC_AgeAtRec = TEU_BaC_AgeAtRec
+) %>%
+  filter(TEU_BrCa_age >= 40) # Only interested in cancers from age 40
+
+groups <- c()
+brca_n <- c()
+atrisk_n <- c()
+
+for(age in c(55, 60, 65, 70, 75, 80)){
+  
+  # Define the 5-yr interval of interest
+  start <- age
+  end <- age + 5
+  
+  # Prep labels
+  group <- paste0("[", start, ",", end, ")")
+  groups <- c(groups, group)
+  
+  # Number of cases in this age group (had breast cancer and age at dx within this interval)
+  brca <- data %>%
+    filter(TEU_BrCa_status == 1 & TEU_BrCa_age >= start & TEU_BrCa_age < end)
+  brca_n <- c(brca_n, nrow(brca))
+  
+  # Number of person years at risk in this age group
+  atrisk <- data %>% 
+    filter(TEU_BrCa_age >= start) %>% # If they weren't censored before the start of this interval
+    mutate(start_int = start,
+           end_int = pmin(TEU_BrCa_age, end),
+           time_at_risk = end_int - start_int
+           )
+  
+  atrisk_n <- c(atrisk_n, sum(atrisk$time_at_risk))
+}
+
+rates_wholepop <- data.frame(Age5 = groups,
+                    brca = brca_n,
+                    n = atrisk_n,
+                    esp_2013 = c(6500, 6000, 5500, 5000, 4000, 2500)) %>%
+  mutate(Age_specific_rates = brca/(n/100000),
+         lci = 0.5 * qchisq(p=0.025, df=(2*brca))/(n/100000),
+         uci = 0.5 * qchisq(p=0.975, df=(2*(brca+1)))/(n/100000),
+         std_wt = esp_2013/sum(esp_2013),
+         Age_standardised_rates = std_wt * Age_specific_rates)
+
+sum(rates_wholepop$Age_standardised_rates)
+
+
+kable(rates_wholepop, digits=2)
+
+ASR <- sum(rates_wholepop$Age_standardised_rates)
+LCI <- round(ASR - 1.96*(ASR/sqrt(sum(rates_wholepop$brca))), 2)
+UCI <- round(ASR + 1.96*(ASR/sqrt(sum(rates_wholepop$brca))), 2)
+
+```
+
+The age-standardised breast cancer rate per 100,000 population (ages 55-85) is: `r round(ASR,2)` (95% CI: `r LCI`, `r UCI`).
+
+This compares to the ONS 2013 directly age-standardised rates per 100,000 population of 299.5 for women.
+
+## Analysis population
+
+Population is post-menopausal White British women with no history of breast cancer, carcinoma in situ or risk reducing mastectomy.
+
+Only incident cases are considered.
+
+```{r}
+
+# Analysis population
+
+data <- analysis_pop %>% select(
+  TEU_BrCa_status,
+  TEU_BrCa_age,
+  TEU_BaC_AgeAtRec
+)
+
+groups <- c()
+brca_n <- c()
+atrisk_n <- c()
+
+for(age in c(55, 60, 65, 70, 75, 80)){
+  
+  start <- age
+  end <- age + 5
+  
+  group <- paste0("[", start, ",", end, ")")
+  groups <- c(groups, group)
+  
+  # Number of cases in this age group (had breast cancer and age at dx within this interval)
+  brca <- data %>% 
+    filter(TEU_BrCa_status == 1 & TEU_BrCa_age >= start & TEU_BrCa_age < end)
+  brca_n <- c(brca_n, nrow(brca))
+  
+  # Number of person years at risk in this age group
+  atrisk <- data %>% 
+    filter(TEU_BaC_AgeAtRec < end & TEU_BrCa_age >= start) %>% # Risk only starts at baseline in analysis pop
+    mutate(start = pmax(TEU_BaC_AgeAtRec, start),
+           end = pmin(TEU_BrCa_age, end),
+           time_at_risk = end - start
+           )
+  
+  atrisk_n <- c(atrisk_n, sum(atrisk$time_at_risk))
+}
+
+rates_analysispop <- data.frame(Age5 = groups,
+                    brca = brca_n,
+                    n = atrisk_n,
+                    esp_2013 = c(6500, 6000, 5500, 5000, 4000, 2500)) %>%
+  mutate(Age_specific_rates = brca/(n/100000),
+         lci = 0.5 * qchisq(p=0.025, df=(2*brca))/(n/100000),
+         uci = 0.5 * qchisq(p=0.975, df=(2*(brca+1)))/(n/100000),
+         std_wt = esp_2013/sum(esp_2013),
+         Age_standardised_rates = std_wt * Age_specific_rates)
+
+sum(rates_analysispop$Age_standardised_rates)
+
+
+kable(rates_analysispop, digits=2)
+
+ASR <- sum(rates_analysispop$Age_standardised_rates)
+LCI <- round(ASR - 1.96*(ASR/sqrt(sum(rates_analysispop$brca))), 2)
+UCI <- round(ASR + 1.96*(ASR/sqrt(sum(rates_analysispop$brca))), 2)
+
+```
+
+The age-standardised breast cancer rate per 100,000 population (ages 55-85) is: `r round(ASR,2)` (95% CI: `r LCI`, `r UCI`).
+
+This compares to the ONS directly age-standardised rates per 100,000 population of 299.5 for women.
+
+# Plot age-specific breast cancer rates, compare to ONS
+
+
+```{r}
+
+# Plot results from
+# Analysis population: above chunk
+# Whole UKB population: branch wholepop
+# ONS 2013 data: K:\TEU\PRSforBrCa\Resources\referencetablearv2013c44_tcm77-410534.xls
+
+rateplot <- cbind(rates_analysispop %>% transmute(Age5 = Age5, 
+                                                  rate_analysis = Age_specific_rates,
+                                                  lci_analysis = lci,
+                                                  uci_analysis = uci),
+                  rates_wholepop %>% transmute(rate_wholeUKB = Age_specific_rates,
+                                               lci_wholeUKB = lci,
+                                               uci_wholeUKB = uci),
+               rate_ONS = c(276.0, 354.8, 415.9, 354.9, 400.6, 432.1)
+               ) %>%
+  mutate(lci_ONS = rate_ONS,
+         uci_ONS = rate_ONS) %>%
+  pivot_longer(cols=c(rate_analysis, rate_wholeUKB, rate_ONS,
+                      lci_analysis, lci_wholeUKB, lci_ONS,
+                      uci_analysis, uci_wholeUKB, uci_ONS),
+               names_to = c(".value", "name"),
+               names_sep = "_") %>%
+  mutate(Cohort = factor(name, levels=c("ONS", "wholeUKB", "analysis"),
+                       c("ONS 2013", "Whole UK Biobank", "Analysis population")))
+
+ggplot(data=rateplot, aes(x=Age5, y=rate, group=Cohort, color=Cohort)) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin=lci, ymax=uci), width=.3, position=position_dodge(0.1)) +
+  ggtitle("Age specific breast cancer rates in women in the UK Biobank,\noverall and within analysis cohort, compared to\nOffice for National Statistics 2013 Cancer Registry data") +
+  ylab("Incidence rate per 100,000 person years at risk") +
+  xlab("Age at cancer diagnosis, years") 
+
+# ggsave(file.path(config$outputs$figures, "incidence_rates.jpg"), 
+#        scale=0.7, width=25, height=15, units="cm")
+
+```
+
+# Yearly incidence rates in UKB as sanity check
+
+```{r}
+
+data_wholepop <- wholepop %>% transmute(
+  TEU_BrCa_status = as.numeric(!is.na(BrCaAge_Any) | TEU_BrCa_status),
+  TEU_BrCa_age = coalesce(BrCaAge_Any, TEU_BrCa_age), # Take CaR recorded age if exists
+  TEU_BaC_AgeAtRec = TEU_BaC_AgeAtRec
+) %>%
+  filter(TEU_BrCa_age >= 40) # Making this explicit
+
+data_analysis <- analysis_pop %>% select(
+  TEU_BrCa_status,
+  TEU_BrCa_age,
+  TEU_BaC_AgeAtRec
+)
+
+# Yearly incidence
+cases_wholepop <- c()
+cases_analysispop <- c()
+people_wholepop <- c()
+people_analysispop <- c()
+
+for(age in seq(40, 84, by=1)){
+  
+ cases_wholepop <- c(cases_wholepop, nrow(data_wholepop %>% filter(TEU_BrCa_status == 1 & round(TEU_BrCa_age) == age)))
+ cases_analysispop <- c(cases_analysispop, nrow(data_analysis %>% filter(TEU_BrCa_status == 1 & round(TEU_BrCa_age) == age)))
+ 
+ people_wholepop <- c(people_wholepop, nrow(data_wholepop %>% filter(TEU_BrCa_age >= age)))
+ people_analysispop <- c(people_analysispop, nrow(data_analysis %>% filter(TEU_BaC_AgeAtRec <= age & TEU_BrCa_age >= age)))
+}
+
+rates <- data.frame(age = seq(40, 84, by=1),
+                    cases_wholepop = cases_wholepop,
+                    cases_analysispop = cases_analysispop,
+                    people_wholepop = people_wholepop,
+                    people_analysispop = people_analysispop) %>%
+  mutate(rates_wholepop = cases_wholepop/(people_wholepop/100000),
+         rates_analysispop = cases_analysispop/(people_analysispop/100000),
+         rates_ons = rep(c(125.3, 230.4, 281.0, 276.0, 354.8, 415.9, 354.9, 400.6, 432.1), each=5)) %>%
+  pivot_longer(cols=c(rates_analysispop, rates_wholepop, rates_ons)) %>%
+  mutate(Cohort = factor(name, levels=c("rates_ons", "rates_wholepop", "rates_analysispop"),
+                       c("ONS 2013", "Whole UK Biobank", "Analysis population")))
+
+ggplot(data=rates, aes(x=age, y=value, group=Cohort, color=Cohort)) +
+  geom_line() +
+  geom_point() +
+  ggtitle("Age specific breast cancer rates in women in the UK Biobank,\noverall and within analysis cohort, compared to\nOffice for National Statistics 2013 Cancer Registry data") +
+  ylab("Incidence rate per 100,000 person years at risk") +
+  xlab("Age at cancer diagnosis, years") 
+
+```
+
+

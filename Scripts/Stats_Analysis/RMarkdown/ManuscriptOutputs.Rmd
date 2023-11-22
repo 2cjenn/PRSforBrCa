@@ -1,0 +1,1270 @@
+---
+title: "Manuscript_Outputs"
+author: "Jennifer Collister"
+date: "`r Sys.Date()`"
+output:
+    word_document:
+      fig_width: 8
+      fig_height: 5
+      reference_docx: "K:/TEU/TEU_Guides/TEU_DocStyle_Rmd_2020.dotx"
+---
+
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(include=TRUE, echo=FALSE, message = FALSE) 
+
+library(kableExtra)
+# Issue with kableExtra collapse_rows for data dictionary
+# Use development version
+# renv::install("haozhu233/kableExtra@a6af5c0")
+# See https://github.com/haozhu233/kableExtra/issues/595#issuecomment-808703159
+
+library(knitr)
+library(yaml)
+library(here)
+library(ggplot2)
+library(tidyr)
+library(readr)
+library(dplyr)
+library(glue)
+library(tictoc)
+
+# Pretty plots
+library(etm)
+library(plotROC) # For XML dependency, used install.packages("XML", type = "binary") to avoid compilation issues
+library(gridExtra)
+library(maps)
+library(pROC)
+
+# Pretty tables
+library(arsenal)
+library(pander)
+library(flextable)
+
+# Survival 
+library(survival)
+library(survminer)
+library(rms) # For Hmisc dependency, used install.packages("Hmisc@4.7-2") to avoid installation issues
+library(lmtest)
+
+# NRI
+library(nricens)
+
+# Gail model
+library(BCRA)
+
+# Flowchart
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(svglite)
+library(rsvg)
+library(png)
+
+# Set the root directory to the project directory (otherwise knitr works in the directory of the Rmd file by default)
+knitr::opts_knit$set(root.dir = here::here())
+
+# Load the project config file for filepaths etc
+config = yaml.load_file(here::here("./config.yml"))
+source(here::here(file.path(config$functions)))
+
+#-------------------------------------------------------------------------------------------------------------------
+
+# Output Formatting
+
+# Specify the markdown format for knitr tables, otherwise they're not compatible with kableExtra
+options(knitr.kable.NA='', knitr.table.format = "markdown")
+options(kableExtra.auto_format = FALSE)
+
+# Pander options
+panderOptions('table.alignment.default', function(df)
+    ifelse(sapply(df, is.numeric), 'right', 'left'))
+panderOptions('table.split.table', Inf)
+panderOptions('big.mark', ",")
+panderOptions('keep.trailing.zeros', TRUE)
+panderOptions('missing', '')
+
+# Set formatting options for tableby objects
+my_controls <- tableby.control(
+    test = F,
+    total = T,
+    #numeric.test = "kwt", cat.test = "chisq",
+    numeric.stats = c("meansd", "Nmiss"), #"medianq1q3", 
+    cat.stats = c("countpct", "Nmiss"),
+    stats.labels = list(
+      meansd = "Mean (SD)",
+      # medianq1q3 = "Median (IQR)",
+      # range = "Min - Max",
+      Nmiss = "Missing",
+      Npct="N (Pct)"
+    ),
+    digits = 2L
+  )
+
+by_status <- tableby.control(
+    test = T,
+    total = T,
+    numeric.test = "kwt", cat.test = "chisq",
+    numeric.stats = c("meansd", "Nmiss"), #"medianq1q3", 
+    cat.stats = c("countpct", "Nmiss"),
+    stats.labels = list(
+      meansd = "Mean (SD)",
+      # medianq1q3 = "Median (IQR)",
+      # range = "Min - Max",
+      Nmiss = "Missing",
+      Npct="N (Pct)"
+    ),
+    digits = 2L
+  )
+
+#-------------------------------------------------------------------------------------------------------
+# Setup
+
+figure <- 1
+table <- 1
+suppfig <- 1
+footnote_no <- 1
+
+```
+
+
+
+```{r derive-data, include=FALSE}
+
+source(file.path(config$scripts$cleaning, "dataset_generator.R"))
+
+exclusions <- function(data) {
+  
+  excl$initial <<- nrow(data)
+  
+  # Restrict to females (by self-report and genetic)
+  data <- data[data$BaC_Sex == "Female",]
+  data <- data[data$GeP_Sex == "Female" & !is.na(data$GeP_Sex),]
+  excl$sex <<- nrow(data)
+  
+  # Restrict to post-menopausal women
+  data <- data[!is.na(data$FSF_MenopauseStatus) & data$FSF_MenopauseStatus == "Yes",]
+  excl$meno <<- nrow(data)
+  
+  # Restrict to White British (genetically)
+  data <- data[!is.na(data$GeP_ethnic),]
+  excl$whitebrit <<- nrow(data)
+  
+  # Exclude those outside the 40-70 age range
+  data <- data[!is.na(data$TEU_BaC_AgeAtRec) & data$TEU_BaC_AgeAtRec >= 40 & data$TEU_BaC_AgeAtRec < 70,]
+  excl$agerange <<- nrow(data)
+  # Restrict population to those for whom we have PRS scores available
+  data <- data[!is.na(data$PRS_bc_std),]
+  excl$prs <<- nrow(data)
+  # Exclude women with 20+ sisters as the TC model can't handle it
+  data <- data[is.na(data$TC_NSisters) | data$TC_NSisters < 20,]
+  # Exclude those who didn't answer HRT use
+  data <- data[data$TC_HRT_raw != "Unanswered",]
+  # Or who reported impossible HRT dates
+  data <- data[is.na(data$FSF_HRTAgeStop) | data$FSF_HRTAgeStop <= ceiling(data$TEU_BaC_AgeAtRec),]
+  excl$hrt <<- nrow(data)
+  
+  # Exclude prior breast cancer
+  data <- data[is.na(data$BrCaDx_Prevalent),]
+  data <- data[is.na(data$VI_BrCa),]
+  excl$brca <<- nrow(data)
+  # Prior mastectomy
+  data <- data[data$TEU_HES_Mast_prev == "No",]
+  excl$mast <<- nrow(data)
+  # Prior carcinoma in situ
+  data <- data[is.na(data$BrCaInSitu_Prevalent),]
+  excl$cainsitu <<- nrow(data)
+
+  
+  return(data)
+}
+
+excl <- list(initial=0)
+tic("Data derived: ")
+data <- derive_variables(
+  database = config$data$database,
+  field_definitions = TEU_SPECS$PRSforBrCa,
+  exclusions = exclusions,
+  dictionary = "PRSforBrCa.html"
+)
+toc()
+
+pretty_names <- pretty_switch(field_definitions=TEU_SPECS$PRSforBrCa)
+pretty_list <- pretty_switch(field_definitions=TEU_SPECS$PRSforBrCa, return_type="list")
+
+
+# Standardise variables so HR are per sd
+data <- data %>% mutate(
+  TC_10risk_sd = TC_10risk_cal/sd(TC_10risk_cal),
+  gail_10risk_sd = gail_10risk_cal/sd(gail_10risk_cal),
+  PRS_bc_sd = PRS_bc_std/sd(PRS_bc_std),
+  TEU_BrCa_313_PRS_center = TEU_BrCa_313_PRS_center / sd(TEU_BrCa_313_PRS_center),
+  TEU_BrCa_100k_PRS_center = TEU_BrCa_100k_PRS_center / sd(TEU_BrCa_100k_PRS_center)
+  )
+
+# Separate out test and training data
+# train_IDs <- data$ID[data$train_set==TRUE]
+# write.csv(train_IDs, file.path(config$data$derived, "training_ids.csv"), row.names = FALSE)
+train_IDs <- read.csv(file.path(config$data$derived, "training_ids.csv"))$x
+
+train_data <- data %>% filter(ID %in% train_IDs)
+
+test_data <- data %>% filter(!ID %in% train_IDs)
+
+```
+
+
+```{r}
+label1 <- paste0('UKB participants\\nn = ', excl$initial)
+label2 <- paste0('Post-menopausal\nWhite British\nfemale participants\\nn = ', excl$agerange)
+label3 <- paste0('Aged between 40 and 70\nwith available core data\\nn = ', excl$hrt)
+label4 <- paste0('Study population: post-menopausal women\nwith no history of breast cancer\\nn = ', excl$cainsitu)
+
+label5 <- paste0(excl$initial-excl$sex, ' males or genetically sex discordant\\l', excl$sex-excl$meno, ' pre-menopausal\\lor unknown menopausal status \\l', excl$meno-excl$whitebrit, ' not of genetically White British ancestry\\l')
+label6 <- paste0(excl$whitebrit-excl$agerange,' outside the age range of [40,70) years \\l', excl$agerange-excl$prs,' Genomics plc PRS unavailable\\l', excl$prs-excl$hrt, ' invalid or missing data for core variables*\\l')
+label7 <- paste0(excl$hrt-excl$brca, ' previous breast cancer\\l', excl$brca-excl$mast, ' previous mastectomy\\l', excl$mast-excl$cainsitu,' previous carcinoma in situ\\l')
+
+gv <- read_file(here::here(file.path(config$outputs$flowcharts, "Exclusions.gv")))
+
+export_svg(DiagrammeR::grViz(glue(gv))
+           ) %>% charToRaw %>% rsvg %>%
+  png::writePNG(here::here(file.path(config$outputs$figures, "Exclusions.png")))
+```
+
+
+## Cox model containing breast cancer risk score and PRS in training data (N=`r nrow(train_data)`)
+
+```{r, fig.height=6}
+# Incorporate PRS using a Cox model in training data, then predict 10-yr risks in the test data
+plot_varnames <- function(x) {
+  y_names <- dplyr::case_when(
+    x == "TC_10risk_sd" ~ "Tyrer-Cuzick 10yr risk",
+    x == "gail_10risk_sd" ~ "Gail 10yr risk",
+    x == "PRS_bc_sd" ~ "PRS_BC",
+    TRUE ~ x
+  )
+  return(y_names)
+}
+
+# Mimic get.risk.coxph from nricens but modify to use prediction in new data
+get.risk.coxph_test <- function(mdl, t0, newdata) {
+  bash <- basehaz(mdl)
+  lambda0 <- approx(bash$time, bash$hazard, t0)$y
+  linpred <- predict(mdl, newdata=newdata, type="lp")
+  risk <- 1 - exp(-lambda0 * exp(linpred))
+}
+
+# Tyrer-Cuzick
+model_TC <- coxph(Surv(TEU_BrCa_time, TEU_BrCa_status) ~
+                        TC_10risk_sd + PRS_bc_sd + GeP_Array + 
+                        GPLC_PC_1 + GPLC_PC_2 + GPLC_PC_3 + GPLC_PC_4,
+                 data=train_data)
+
+test_data$TC_prs_10risk <- get.risk.coxph_test(model_TC, t0=10, newdata=test_data)
+# train_data$TC_prs_10risk2 <- predict(model_TC, type = "risk")
+
+# plot Schoenfeld residuals
+test.ph <- cox.zph(model_TC)
+# test.ph
+y <- test.ph$y
+colnames(y) <- plot_varnames(colnames(y))
+test.ph$y <- y
+ggcoxzph(test.ph, point.alpha=0.04, var=c("Tyrer-Cuzick 10yr risk", "PRS_BC"),
+         caption="Model also includes genetic array and first 4 principal components of genetic ancestry, plots omitted.")
+
+
+# Gail
+model_gail <- coxph(Surv(TEU_BrCa_time, TEU_BrCa_status) ~
+                        gail_10risk_sd + PRS_bc_sd + GeP_Array + 
+                        GPLC_PC_1 + GPLC_PC_2 + GPLC_PC_3 + GPLC_PC_4,
+                 data=train_data)
+
+test_data$gail_prs_10risk <- get.risk.coxph_test(model_gail, t0=10, newdata=test_data)
+
+# plot Schoenfeld residuals
+test.ph <- cox.zph(model_gail)
+# test.ph
+y <- test.ph$y
+colnames(y) <- plot_varnames(colnames(y))
+test.ph$y <- y
+ggcoxzph(test.ph, point.alpha=0.04, var=c("Gail 10yr risk", "PRS_BC"),
+         caption="Model also includes genetic array and first 4 principal components of genetic ancestry, plots omitted.")
+
+# Test data
+
+test_data <- test_data %>% 
+  mutate(
+    TC_10risk_cat = factor(ifelse(TC_10risk_cal <= 0.05, "<=5%", ">5%"),
+                         levels=c("<=5%", ">5%")),
+    gail_10risk_cat = factor(ifelse(gail_10risk_cal <= 0.05, "<=5%", ">5%"),
+                           levels=c("<=5%", ">5%")),
+    TC_prs_10risk_cat = factor(ifelse(TC_prs_10risk <= 0.05, "<=5%", ">5%"),
+                             levels=c("<=5%", ">5%")),
+  gail_prs_10risk_cat = factor(ifelse(gail_prs_10risk <= 0.05, "<=5%", ">5%"),
+                               levels=c("<=5%", ">5%"))
+  )
+
+# Table
+get_HR_perSD <- function(model, var) {
+  
+  coeff <- summary(model)$coefficients
+  HR <- coeff[rownames(coeff)==var,]
+  
+  return(paste0(pretty_dp(exp(HR[1]), dp=2), " ",
+                pretty_confint(exp(HR[1] - (1.96*HR[3])), 
+                               exp(HR[1] + (1.96*HR[3])), dp=2))
+  )
+}
+
+
+dt <- data.frame(var=c("Tyrer-Cuzick", "Gail"),
+                 model=c(get_HR_perSD(model_TC, "TC_10risk_sd"), get_HR_perSD(model_gail, "gail_10risk_sd")),
+                 prs=c(get_HR_perSD(model_TC, "PRS_bc_sd"), get_HR_perSD(model_gail, "PRS_bc_sd"))
+)
+
+ft <- flextable(dt) %>%
+  set_header_labels(var="Model", model="10-year risk score HR per SD", prs="PRS HR per SD") %>%
+  set_table_properties(layout="autofit") %>%
+  footnote(i=1, j=1, 
+           value=as_paragraph("Hazard ratio per standard deviation from a Cox model containing 10-year risk score from breast cancer risk prediction model, Genomics plc PRS, genetic array and first 4 principal components of genetic ancestry, in the training data"), 
+           ref_symbols="a", part="header")
+
+ft
+    
+```
+
+
+
+```{r}
+# How many women are above 5% 10yr risk according to the original model?
+
+TC_5pct <- table(test_data$TC_10risk_cal > 0.05, useNA='ifany')
+TC_5prop <- TC_5pct[2]/nrow(test_data)
+TC_prs_threshold <- quantile(test_data$TC_prs_10risk, probs=c(1-TC_5prop))
+
+
+gail_5pct <- table(test_data$gail_10risk_cal > 0.05, useNA='ifany')
+gail_5prop <- gail_5pct[2]/nrow(test_data)
+gail_prs_threshold <- quantile(test_data$gail_prs_10risk, probs=c(1-gail_5prop))
+
+
+# How many women are above 5% 10yr risk after adding the PRS?
+
+TC_combined_5pct <- table(test_data$TC_prs_10risk > 0.05) 
+
+gail_combined_5pct <- table(test_data$gail_prs_10risk > 0.05) 
+
+test_data <- test_data %>% mutate(
+  TC_prs_10risk_adj = TC_prs_10risk - (quantile(TC_prs_10risk, probs=c(1-TC_5prop)) - 0.05),
+  TC_prs_10risk_adj_cat = factor(ifelse(TC_prs_10risk <= TC_prs_threshold, 
+                                          paste0("<=", round(100*TC_prs_threshold,2), "%"), 
+                                          paste0(">", round(100*TC_prs_threshold,2), "%")),
+                               levels=c(paste0("<=", round(100*TC_prs_threshold,2), "%"), 
+                                        paste0(">", round(100*TC_prs_threshold,2), "%"))),
+  gail_prs_10risk_adj = gail_prs_10risk - (quantile(gail_prs_10risk, probs=c(1-gail_5prop)) - 0.05),
+  gail_prs_10risk_adj_cat = factor(ifelse(gail_prs_10risk <= gail_prs_threshold, 
+                                          paste0("<=", round(100*gail_prs_threshold,2), "%"), 
+                                          paste0(">", round(100*gail_prs_threshold,2), "%")),
+                               levels=c(paste0("<=", round(100*gail_prs_threshold,2), "%"), 
+                                        paste0(">", round(100*gail_prs_threshold,2), "%")))
+  )
+
+```
+
+
+```{r, results=FALSE}
+
+# Net reclassification index, for Table 1
+
+# Tyrer-Cuzick
+nri_tc <- nricens(time=test_data$TEU_BrCa_time, event=test_data$TEU_BrCa_status,
+        p.std=test_data$TC_10risk_cal, p.new=test_data$TC_prs_10risk_adj,
+        t0=10, cut=0.05, msg=FALSE)
+
+# Gail
+nri_gail <- nricens(time=test_data$TEU_BrCa_time, event=test_data$TEU_BrCa_status,
+        p.std=test_data$gail_10risk_cal, p.new=test_data$gail_prs_10risk_adj,
+        t0=10, cut=0.05, msg=FALSE)
+
+nri_ci <- function(nri_output, type="overall", dp=3){
+  row <- dplyr::case_when(
+    type=="overall" ~ 1,
+    type=="case" ~ 2,
+    type=="control" ~ 3
+  )
+  est <- nri_output$nri$Estimate[row]
+  lci <- nri_output$nri$Lower[row]
+  uci <- nri_output$nri$Upper[row]
+  
+  return(paste0(pretty_dp(est, dp=dp), " ", pretty_confint(lci, uci, dp=dp)))
+}
+
+```
+
+
+## Table `r table`: Model performance with/without PRS in test data (N=`r nrow(test_data)`)
+`r table <- table + 1`
+
+```{r}
+
+
+dt <- data.frame(model=c("Tyrer-Cuzick", "Model only", "Model with PRS", 
+                         "Gail", "Model only", "Model with PRS"),
+                 AUC=c(NA,
+                       AUC_CI(df=test_data, score="TC_10risk_cal", status = "TEU_BrCa_status", dp=2),
+                       AUC_CI(df=test_data, score="TC_prs_10risk", status = "TEU_BrCa_status", dp=2),
+                       NA,
+                       AUC_CI(df=test_data, score="gail_10risk_cal", status = "TEU_BrCa_status", dp=2),
+                       AUC_CI(df=test_data, score="gail_prs_10risk", status = "TEU_BrCa_status", dp=2)),
+                 NRI_overall=c(NA, nri_ci(nri_tc, type="overall", dp=3), nri_ci(nri_tc, type="overall", dp=3), 
+                               NA, nri_ci(nri_gail, type="overall", dp=3), nri_ci(nri_gail, type="overall", dp=3)),
+                 NRI_case=c(NA, nri_ci(nri_tc, type="case", dp=3), nri_ci(nri_tc, type="case", dp=3), 
+                               NA, nri_ci(nri_gail, type="case", dp=3), nri_ci(nri_gail, type="case", dp=3)),
+                 NRI_control=c(NA, nri_ci(nri_tc, type="control", dp=3), nri_ci(nri_tc, type="control", dp=3), 
+                               NA, nri_ci(nri_gail, type="control", dp=3), nri_ci(nri_gail, type="control", dp=3)))
+
+ft <- flextable(dt) %>%
+  merge_v(j = ~ model + NRI_overall + NRI_case + NRI_control) %>%
+  # separate_header(sep="_") %>%
+  set_header_labels(model="Model", AUC="AUC (95% CI)",
+                    NRI_overall="Overall", 
+                    NRI_case=paste0("Case (N=", nrow(test_data[test_data$TEU_BrCa_time <= 10 &
+                                                                 test_data$TEU_BrCa_status==1,]), ")"), 
+                    NRI_control=paste0("Control (N=", nrow(test_data[test_data$TEU_BrCa_time > 10,]), ")")) %>%
+  add_header_row(values=c("", "NRI"), colwidths=c(2, 3)) %>%
+  align(align = "center", part = "all", j=c('AUC', 'NRI_overall', 'NRI_case', 'NRI_control')) %>%
+  bg(i= ~ is.na(AUC), bg="lightgrey", part="body") %>%
+  merge_at(i=1, j=1:5) %>%
+  merge_at(i=4, j=1:5) %>%
+  fix_border_issues(part="all") %>%
+  set_table_properties(layout="autofit") %>%
+  footnote(i=1, j=3, 
+           value=as_paragraph("NRI: Net Reclassification Index for 10yr risks from model with PRS compared to Calibrated model, with a fixed proportion of women classified as high risk"), 
+           ref_symbols="a", part="header") %>%
+  footnote(i=2, j=3, 
+           value=as_paragraph("Overall NRI = Case NRI + Control NRI, where cases are defined as individuals diagnosed with breast cancer within 10 years and controls are defined as individuals who were still at risk of breast cancer by 10 years of follow-up."), 
+           ref_symbols="b", part="header")
+
+ft
+
+# Flextable: Border issues with merged cells
+# https://davidgohel.github.io/flextable/reference/fix_border_issues.html
+
+
+```
+
+
+## Figure `r figure`: Calibration plots
+`r figure <- figure + 1`
+
+```{r, fig.height=7}
+
+# Calibration - code adapted from Ruthie's Project and Xiaonan's diabetes work with Leicester score
+
+cal_plot <- function(data, var="TC_10risk", title, xlim=c(0.01,0.07), ylim=c(0.01,0.07)){
+
+  # First group into deciles of predicted risk
+  deciles <- quantile(data[[var]], probs = seq(0, 1, 0.1))
+  labels <- c("1st decile", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th decile")
+  data <- data %>% mutate(
+    TEU_BrCa_status = ifelse(TEU_BrCa_time < 10, TEU_BrCa_status, 0),
+    TEU_BrCa_time = ifelse(TEU_BrCa_time < 10, TEU_BrCa_time, 10),
+    risk_dec = cut(get(var), breaks=deciles, labels=labels, right=TRUE, include.lowest=TRUE)
+    ) 
+  
+  # Mean predicted risk per decile
+  predicted <- data %>%
+    group_by(risk_dec) %>% 
+    summarise(predicted = mean(get(var)))
+  
+  # Fit survival curves from Kaplan-Meier and extract observed risks by predicted risk decile
+  fit <- survfit(Surv(TEU_BrCa_time, TEU_BrCa_status) ~ risk_dec, data=data)
+  fit_time <- summary(fit, times = 10)
+  
+  observed <- data.frame(risk_dec = fit_time$strata,
+                         observed = 1 - fit_time$surv,
+                         observed_lci = 1 - fit_time$lower,
+                         observed_uci = 1 - fit_time$upper) %>%
+    mutate(risk_dec = as.factor(str_remove(risk_dec, "risk_dec=")))
+  
+  # Join predicted and observed
+  calibration <- predicted %>% inner_join(observed, by="risk_dec")
+  
+  # Calculate calibration slope
+  cal_model <- lm(observed ~ predicted, data=calibration)
+  cal_slope <- cal_model$coefficients[2]
+  cal_intercept <- cal_model$coefficients[1]
+  
+  # Plot in calibration plot
+  plot <- ggplot(calibration, aes(predicted, observed)) +
+    geom_point(shape=22, size=3, color="blue", fill="blue") +
+    geom_abline(aes(slope=1, intercept=0, linetype="dashed", colour="Ideal (y=x)"), show.legend=FALSE) +
+    geom_smooth(method=lm, aes(colour="Best fit")) +
+    geom_pointrange(aes(ymin=observed_lci, ymax=observed_uci)) +
+    scale_x_continuous(limits=xlim) +
+    scale_y_continuous(limits=ylim) +
+    labs(x="Predicted risk",
+         y="Observed risk",
+         title=title) +
+    annotate("text", x=0.05, y = 0.02, size=10/.pt,
+             label=paste0("Slope = ", pretty_dp(cal_slope, 3), 
+                          "\nIntercept = ", pretty_dp(cal_intercept, 3))) +
+    scale_color_manual(name = "Legend",             # legend name
+                     values = c("Ideal (y=x)" = "black",  # map regression line colors
+                                "Best fit" = "blue")) +
+    theme(legend.justification = c(0, 1), legend.position = c(0, 1)) +
+    theme(plot.title = element_text(size=10))
+  
+  ggsave(file.path(config$outputs$figures, paste0(var, "_calibration_plot10.jpg")), 
+       scale=0.6, width=25, height=15, units="cm")
+  
+  return(plot)
+  
+}
+
+TC_cal <- cal_plot(data=data, var="TC_10risk",
+                   title="Tyrer-Cuzick model")
+gail_cal <- cal_plot(data=data, var="gail_10risk",
+                     title="Gail model") +
+  theme(legend.position="none")
+TC_cal2 <- cal_plot(data=data, var="TC_10risk_cal",
+                   title="Calibrated Tyrer-Cuzick model")
+gail_cal2 <- cal_plot(data=data, var="gail_10risk_cal",
+                     title="Calibrated Gail model") +
+  theme(legend.position="none")
+
+
+# 2. Save the legend
+#+++++++++++++++++++++++
+legend <- get_legend(TC_cal)
+# 3. Remove the legend from the box plot
+#+++++++++++++++++++++++
+TC_cal <- TC_cal + theme(legend.position="none")
+
+gridExtra::grid.arrange(TC_cal, gail_cal, legend, TC_cal2, gail_cal2,
+                        ncol=3, widths=c(3.5, 3.5, 0.8),
+                        top=paste0("Before and after calibration plots of 10-year observed vs predicted risk by predicted risk decile of each model in the whole analysis population (N=", nrow(data), ")"))
+
+
+```
+
+
+## Figure `r figure`: ROC Plots
+`r figure <- figure + 1`
+
+```{r, fig.width=12, warning=FALSE}
+
+# ROC plot
+# https://rviews.rstudio.com/2019/03/01/some-r-packages-for-roc-curves/
+# https://cran.r-project.org/web/packages/plotROC/plotROC.pdf
+# https://cran.r-project.org/web/packages/plotROC/vignettes/examples.html
+
+# New approach uses pROC, Xiaonan's code
+# https://gitlab.ndph.ox.ac.uk/jenniferco/prsondiabetes/-/blob/Riskscore/Scripts/Stats_Analysis/RMarkdown/RiskScore_Primary.Rmd#auc
+
+
+
+roc_plot <- function(data, modelname, prsname, plotname,
+                     varlist=c("gail_10risk_cal", "PRS_bc_std", "gail_prs_10risk")){
+  
+  AUC_CIs <- sapply(varlist, function(x) AUC_CI(df=data, score=x, status = "TEU_BrCa_status", dp=2))
+  
+  AUC_labels <- c(
+    paste0(modelname, " 10-yr risk: ", AUC_CIs[1]),
+    paste0(prsname, " PRS: ", AUC_CIs[2]),
+    paste0(modelname, " & PRS 10-yr risk: ", AUC_CIs[3])
+  )
+  
+  long <- data %>%
+    select(ID, TEU_BrCa_status, all_of(varlist)) %>%
+    pivot_longer(!c("ID","TEU_BrCa_status"), names_to = "Score", values_to = "Value") %>%
+    mutate(Score=factor(Score,levels = varlist))
+  
+  
+  plot <- ggplot(long, aes(d=TEU_BrCa_status, m=Value, color=Score)) +
+    geom_roc(n.cuts = 0, linealpha = 1, size=1) +
+    style_roc() +
+    geom_abline(aes(slope=1, intercept=0), linetype="dashed") +
+    scale_color_manual(name="AUC (95% CI)", labels =  AUC_labels, values = c("#F8766D","#00BA38", "#6193FF")) +
+    labs(title = paste0(plotname), 
+         caption = "Dashed line is y=x") +
+    theme(legend.position = c(0.7, 0.15))
+  
+  ggsave(file.path(config$outputs$figures, paste0("rocplot_", modelname, ".jpg")), 
+         scale=0.7, width=25, height=15, units="cm")
+  
+  plot
+}
+
+# Tyrer-Cuzick
+TC_roc <- roc_plot(test_data, modelname="TC", prsname="Genomics plc", plotname="Tyrer-Cuzick",
+         varlist=c("TC_10risk_cal", "PRS_bc_std", "TC_prs_10risk"))
+
+# Gail
+gail_roc <- roc_plot(test_data, modelname="Gail", prsname="Genomics plc", plotname="Gail",
+         varlist=c("gail_10risk_cal", "PRS_bc_std", "gail_prs_10risk"))
+
+gridExtra::grid.arrange(TC_roc, gail_roc,
+                        ncol=2,
+                        top=paste0("ROC curves for 10-yr risk predictions in test data (N=", nrow(test_data), ")"))
+
+```
+
+## Tables 3 Reclassification
+
+### Tyrer-Cuzick
+
+When using the Tyrer-Cuzick model, `r pretty_dp(100*TC_5prop, 2)`% of women are above 5% 10yr risk.
+
+This rises to `r pretty_dp(100*TC_combined_5pct[2]/nrow(test_data),2)`% of women above this 5% threshold when using the combination of both Tyrer-Cuzick and PRS in a Cox model.
+
+Instead of using a fixed threshold, let's use the same proportion of women.
+
+NRI using top `r pretty_dp(100*TC_prs_threshold,2)`% of 10yr risk as risk threshold
+
+```{r}
+
+nri_tab <- function(p, population, model_old, model_new) {
+  p <- propped(p)
+  p <- as.data.frame(cbind(c(model_old, model_old, ""), rownames(p), p))
+  
+  flextable(p) %>%
+    merge_v(j = ~ V1) %>%
+    set_header_labels(V1="", V2="") %>%
+    add_header_row(values=c(population, model_new, ""), colwidths=c(2, 2,1)) %>%
+    align(align = "center", part = "all") %>%
+    set_table_properties(layout="autofit") %>%
+    border_remove() %>%
+    hline_top() %>%
+    hline(i=c(2)) %>%
+    vline(j=c(2, 4)) %>%
+    fix_border_issues(part="all") %>%
+    footnote(i=1, j=1, value=as_paragraph("Cases defined as individuals diagnosed with breast cancer within 10 years. Controls defined as individuals who were still at risk of breast cancer by 10 years of follow-up. Individuals censored before 10 years are not displayed."), 
+           ref_symbols="a", part="header")
+}
+
+################
+# Tyrer-Cuzick #
+################
+
+# Cases
+print("Cases")
+nri_tab(table(test_data$TC_10risk_cat[test_data$TEU_BrCa_time <= 10 & test_data$TEU_BrCa_status==1], 
+              test_data$TC_prs_10risk_adj_cat[test_data$TEU_BrCa_time <= 10 & test_data$TEU_BrCa_status==1]), 
+        population="Cases", model_old="Tyrer-Cuzick", model_new="Tyrer-Cuzick + PRS")
+
+
+# Controls
+print("Controls")
+nri_tab(table(test_data$TC_10risk_cat[test_data$TEU_BrCa_time > 10], 
+              test_data$TC_prs_10risk_adj_cat[test_data$TEU_BrCa_time > 10]), 
+        population="Controls", model_old="Tyrer-Cuzick", model_new="Tyrer-Cuzick + PRS")
+
+```
+
+### Gail
+
+When using the Gail model, `r round(100*gail_5prop, 2)`% of women are above 5% 10yr risk.
+
+This rises to `r round(100*gail_combined_5pct[2]/nrow(test_data),2)`% of women above this 5% threshold when using the combination of both Gail and PRS in a Cox model.
+
+Instead of using a fixed threshold, let's use the same proportion of women.
+
+NRI using top `r round(100*gail_prs_threshold,2)`% of 10yr risk as risk threshold
+
+```{r}
+
+########
+# Gail #
+########
+
+
+# Cases
+print("Cases")
+nri_tab(table(test_data$gail_10risk_cat[test_data$TEU_BrCa_time <= 10 & test_data$TEU_BrCa_status==1], 
+              test_data$gail_prs_10risk_adj_cat[test_data$TEU_BrCa_time <= 10 & test_data$TEU_BrCa_status==1]), 
+        population="Cases", model_old="Gail", model_new="Gail + PRS")
+
+
+# Controls
+print("Controls")
+nri_tab(table(test_data$gail_10risk_cat[test_data$TEU_BrCa_time > 10], 
+              test_data$gail_prs_10risk_adj_cat[test_data$TEU_BrCa_time > 10]), 
+        population="Controls", model_old="Gail", model_new="Gail + PRS")
+
+
+```
+
+# Decision curve analysis
+
+```{r, fig.width=10}
+
+library(dcurves)
+
+name_conv <- list("Treat All" = "Screen all",
+                  "Treat None" = "Screen none",
+                  "TC_10risk_cal" = "Tyrer-Cuzick",
+                  "TC_prs_10risk" = "Tyrer-Cuzick with PRS_BC",
+                  "gail_10risk_cal" = "Gail",
+                  "gail_prs_10risk" = "Gail with PRS_BC")
+name_color <- c("Screen all" = "grey",
+                "Screen none" = "black",
+                "Tyrer-Cuzick" = "#E69F00",
+                "Tyrer-Cuzick with PRS_BC" = "#D55E00",
+                "Gail" = "#56B4E9",
+                "Gail with PRS_BC" = "#0072B2")
+
+allnone_drop <- function(.data) {
+  new_dca <- .data$dca %>% 
+    filter(! label %in% c("Treat None")) %>% 
+    mutate(label = factor(label))
+  .data$dca <- new_dca
+  return(.data)
+}
+
+nameswap <- function(.data) {
+  new_dca <- .data$dca %>% mutate(
+    label = factor(label, labels=unlist(name_conv[levels(label)], use.names=FALSE))
+    )
+  .data$dca <- new_dca
+  return(.data)
+}
+
+# Net benefit
+dca_tc <- dca(TEU_BrCa_status ~ TC_10risk_cal + TC_prs_10risk, 
+            test_data, 
+            thresholds = seq(0, 0.12, by = 0.001)) %>%
+  nameswap() %>%
+  plot(smooth = TRUE) +
+  labs(title="Tyrer-Cuzick") + 
+  theme(legend.position = c(0.6, 0.8)) + 
+  scale_color_manual(values = name_color)
+
+dca_tc
+ggsave(file.path(config$outputs$figures, "TC_DCA.png"), 
+       scale=0.7, width=25, height=15, units="cm")
+
+dca_gail <- dca(TEU_BrCa_status ~ gail_10risk_cal + gail_prs_10risk,
+            test_data,
+            thresholds = seq(0, 0.12, by = 0.001)) %>%
+  nameswap() %>%
+  plot(smooth = TRUE) +
+  labs(title="Gail") +
+  theme(legend.position = c(0.6, 0.8)) + 
+  scale_color_manual(values = name_color)
+
+dca_gail
+ggsave(file.path(config$outputs$figures, "gail_DCA.png"), 
+       scale=0.7, width=25, height=15, units="cm")
+
+gridExtra::grid.arrange(dca_tc, dca_gail,
+                        ncol=2,
+                        top=paste0("Decision curves for 10-year risk from models with and without PRS_BC in test data (N=",
+                                   nrow(test_data), ")"))
+
+# Interventions avoided
+ia_tc <- dca(TEU_BrCa_status ~ TC_10risk_cal + TC_prs_10risk, 
+             data = test_data, 
+             thresholds = seq(0, 0.12, by = 0.001),
+             as_probability = c("TC_10risk_cal", "TC_prs_10risk")) %>%
+  net_intervention_avoided(nper=100) %>%
+  allnone_drop() %>%
+  nameswap() %>%
+  plot(smooth = TRUE) +
+  labs(title="Tyrer-Cuzick") + 
+  theme(legend.position = c(0.3, 0.8)) + 
+  scale_color_manual(values = name_color)
+
+ia_tc
+ggsave(file.path(config$outputs$figures, "TC_NIA.png"), 
+       scale=0.7, width=25, height=15, units="cm")
+
+ia_gail <- dca(TEU_BrCa_status ~ gail_10risk_cal + gail_prs_10risk,
+               test_data,
+               thresholds = seq(0, 0.12, by = 0.001)#,
+               # as_probability = c("TC_10risk_cal", "TC_prs_10risk")
+            ) %>%
+  net_intervention_avoided(nper=100) %>%
+  allnone_drop() %>%
+  nameswap() %>%
+  plot(smooth = TRUE) +
+  labs(title="Gail") +
+  theme(legend.position = c(0.3, 0.8)) + 
+  scale_color_manual(values = name_color)
+
+ia_gail
+ggsave(file.path(config$outputs$figures, "gail_NIA.png"), 
+       scale=0.7, width=25, height=15, units="cm")
+
+gridExtra::grid.arrange(ia_tc, ia_gail,
+                        ncol=2,
+                        top=paste0("Net interventions avoided per 100 women for 10-year risk from models with and without PRS_BC in test data (N=",
+                                   nrow(test_data), ")"))
+
+```
+
+# Supplementary Materials
+
+## Supplementary Figure: Flowchart illustrating selection of analytic dataset (n = `r nrow(data)`).
+
+!["*'Invalid or missing data for core variables' comprises: 1. Missing data for HRT use (Never, Previous or Current) as this variable was required for the Tyrer-Cuzick model. Previous HRT users with unknown age of stopping HRT were categorised into 'Previous (<5)' and 'Previous (>5)' by imputation. 2. Twenty or more sisters, as this crashes the Tyrer-Cuzick model. 3. An age of stopping HRT that was greater than age at baseline."](Figures/Manuscript/Exclusions.png){height=700px}
+
+## Supplementary Table: Baseline characteristics 
+
+Including variables from both models, by quintile (1st, 3rd, 5th, overall) of Genomics plcs PRS
+
+
+```{r, results='asis'}
+
+# Descrp stats
+part1 <- tableby(PRS_bc_std_q ~ 
+                   # Standard
+                   TEU_BaC_AgeCat + Height + Weight +
+                   # Reproductive
+                   FSF_AgeMenarche + TC_Parity + FSF_AgeMenopause +
+                   TC_HRT_imputed +
+                   # Diagnoses
+                   TC_OvarianCaDx + Biopsy_Prevalent +
+                   # Family history
+                   TC_MotherBrCa + 
+                   TC_NSisters + TC_SiblingBrCa + TC_FatherBrCa,
+                 data=data %>% mutate(Biopsy_Prevalent=factor(Biopsy_Prevalent)), 
+                 control=my_controls)
+
+# Descriptive stats within subgroups
+
+# Reproductive
+rep_agefb <- tableby(PRS_bc_std_q ~ AgeFirstBirth,
+                 data=data %>% filter(!is.na(TC_Parity) & TC_Parity == "Parous"),
+                 control=my_controls)
+
+rep_hrtdur <- tableby(PRS_bc_std_q ~ FSF_HRTDuration,
+                 data=data %>% filter(TC_HRT_imputed %in% c("Current",
+                                                            "Previous user (less than 5 years ago)")),
+                 control=my_controls)
+
+rep_hrtsince <- tableby(PRS_bc_std_q ~ FSF_HRT_timesince,
+                 data=data %>% filter(TC_HRT_imputed == "Previous user (less than 5 years ago)"),
+                 control=my_controls)
+
+# Medical history
+dx_ov <- tableby(PRS_bc_std_q ~ TC_OvarianCaAge,
+                 data=data %>% filter(TC_OvarianCaDx == "Yes"),
+                 control=my_controls)
+
+dx_hyp <- tableby(PRS_bc_std_q ~ Gail_AtypicalHyperplasia,
+                  data=data %>% 
+                    filter(Biopsy_Prevalent > 0) %>% 
+                    mutate(Gail_AtypicalHyperplasia = factor(Gail_AtypicalHyperplasia)),
+                  control=my_controls)
+
+# Family history 
+fh_ma <- tableby(PRS_bc_std_q ~ TC_MotherAge,
+                 data=data %>% filter(TC_MotherBrCa == "No"),
+                 control=my_controls)
+
+
+
+summary(part1, labelTranslations = pretty_list,
+        title=paste0('Table 1. Descriptive statistics by quintiles of breast cancer PRS'))
+
+# Reproductive
+summary(rep_agefb, labelTranslations = pretty_list,
+        title="Table 1a. Age at first birth among parous women")
+summary(rep_hrtdur, labelTranslations = pretty_list,
+        title="Table 1b. Duration of HRT use, among women who are currently taking HRT or who previously used HRT less than 5 years ago")
+summary(rep_hrtsince, labelTranslations = pretty_list,
+        title="Table 1c. Time since stopping HRT among women who had previously used HRT less than 5 years ago")
+# Medical history
+summary(dx_ov, labelTranslations = pretty_list,
+        title="Table 1d. Age at ovarian cancer diagnosis among women diagnosed with ovarian cancer")
+summary(dx_hyp, labelTranslations = pretty_list,
+        title="Table 1e. Diagnosis of atypical hyperplasia, among women with breast biopsy")
+# Family history
+summary(fh_ma, labelTranslations = pretty_list,
+        title="Table 1f. Maternal age at baseline or death, among women whose mothers had not had breast cancer. Note: Tyrer-Cuzick model asked for maternal age at dx of breast cancer or, if no dx, then current age or age at death. In UKB data, maternal age at breast cancer diagnosis was not available, only age at baseline assessment or age at death.")
+
+```
+
+## Cox regression coefficients of individual variables in TC and Gail models
+
+### TC
+
+```{r, results='asis'}
+
+# Tyrer-Cuzick
+
+tc_varlist <- c("FSF_AgeMenopause", "FSF_AgeMenarche", "Height", "BMI", 
+                "AgeFirstBirth", "TC_HRT_imputed", "AtypicalHyperplasia")
+                # "TEU_BaC_AgeAtRec", "TC_Parity", 
+                # "AtypicalHyperplasia", "TC_OvarianCaDx", "TC_OvarianCaAge", "FSF_HRTDuration", 
+                # "FSF_HRT_timesince", "TC_MotherBrCa", "TC_NSisters", "TC_SiblingBrCa", "TC_FatherBrCa")
+
+tc_data <- train_data %>% 
+  mutate(BMI = Weight/(Height/100)^2,
+         FSF_AgeMenopause = FSF_AgeMenopause/5,
+         FSF_AgeMenarche = relevel(
+           cut(FSF_AgeMenarche, breaks=c(0, 11, 12, 13, 14, 15, 16, 17, 100),
+               labels=c("<11", "11", "12", "13", "14", "15", "16", "17 or older"), right=FALSE),
+           ref="13"),
+         Height = cut(Height, breaks=c(0, 160, 170, 200),
+                      labels=c("<1.6", "1.6-1.7", "1.7 or taller"), right=FALSE),
+         BMI = cut(BMI, breaks=c(0, 21, 23, 25, 27, 100),
+                   labels=c("<21", "21 to <23", "23 to <25", "25 to <27", "27 or more"), right=FALSE),
+         AgeFirstBirth = factor(dplyr::case_when(
+           TC_Parity == "Nulliparous" ~ "Nulliparous",
+           is.na(AgeFirstBirth) ~ NA,
+           AgeFirstBirth < 20 ~ "<17-19",
+           AgeFirstBirth < 25 ~ "20-24",
+           AgeFirstBirth < 30 ~ "25-29",
+           AgeFirstBirth < 35 ~ "30-34",
+           AgeFirstBirth >= 35 ~ "35+"
+         ), levels=c("Nulliparous", "<17-19", "20-24", "25-29", "30-34", "35+")),
+         TC_HRT_imputed = factor(dplyr::case_when(
+           TC_HRT_imputed == "Current" ~ "Current",
+           TRUE ~ "Not current"
+         ), levels=c("Not current", "Current"))) %>%
+  select(ID, BaC_Age, TEU_BrCa_time, TEU_BrCa_status, 
+                                 tc_varlist) %>%
+  drop_na
+
+tc_formula <- paste0("Surv(TEU_BrCa_time, TEU_BrCa_status) ~ BaC_Age + ", paste0(tc_varlist, collapse=" + "))
+tc_cox <- coxph(as.formula(tc_formula), data=tc_data)
+
+kable(printcoxresults(tc_data, varlist=tc_varlist, modeloutput=tc_cox))
+
+for (var in tc_varlist) {
+  tc_formula <- paste0("Surv(TEU_BrCa_time, TEU_BrCa_status) ~ BaC_Age + ", var)
+  tc_cox <- coxph(as.formula(tc_formula), data=tc_data)
+  print(kable(printcoxresults(tc_data, varlist=var, modeloutput=tc_cox)))
+}
+
+```
+
+### Gail
+
+```{r, results='asis'}
+
+#  Gail
+
+gail_varlist <- c("FSF_AgeMenarche", "Biopsy_Prevalent", "AgeCat",
+                  "AgeFirstBirth", "FamilyBrCa_HowMany")
+
+
+gail_data <- train_data %>% 
+  mutate(Biopsy_Prevalent = factor(Biopsy_Prevalent),
+         FSF_AgeMenarche = relevel(cut(FSF_AgeMenarche, breaks=c(0, 11, 13, 100),
+               labels=c("<12", "12-13", ">=14"), right=TRUE), ref=">=14"),
+         AgeFirstBirth = factor(dplyr::case_when(
+           TC_Parity == "Nulliparous" ~ "25-29 or Nulliparous",
+           is.na(AgeFirstBirth) ~ NA,
+           AgeFirstBirth < 20 ~ "<20",
+           AgeFirstBirth < 25 ~ "20-24",
+           AgeFirstBirth < 30 ~ "25-29 or Nulliparous",
+           AgeFirstBirth < 35 ~ "30 or older"
+         ), levels=c("<20", "20-24", "25-29 or Nulliparous", "30 or older")),
+         FamilyBrCa_HowMany = factor(FamilyBrCa_HowMany),
+         AgeCat = cut(BaC_Age, breaks=c(0, 50, 100), labels=c("<50yr", ">=50yr"))
+         ) %>%
+  select(ID, BaC_Age, TEU_BrCa_time, TEU_BrCa_status, 
+                                 gail_varlist) %>%
+  drop_na
+
+gail_cox <- coxph(as.formula(Surv(TEU_BrCa_time, TEU_BrCa_status) ~ FSF_AgeMenarche + 
+                   Biopsy_Prevalent + AgeCat + AgeFirstBirth*FamilyBrCa_HowMany), data=gail_data)
+print(gail_cox)
+
+gail_cox_nointeract <- coxph(as.formula(Surv(TEU_BrCa_time, TEU_BrCa_status) ~ FSF_AgeMenarche + 
+                   Biopsy_Prevalent + AgeCat + AgeFirstBirth + FamilyBrCa_HowMany), data=gail_data)
+
+lmtest::lrtest(gail_cox, gail_cox_nointeract)
+
+
+
+for (var in gail_varlist) {
+  gail_formula <- paste0("Surv(TEU_BrCa_time, TEU_BrCa_status) ~ BaC_Age + ", var)
+  gail_cox <- coxph(as.formula(gail_formula), data=gail_data)
+  print(kable(printcoxresults(gail_data, varlist=var, modeloutput=gail_cox)))
+}
+
+```
+
+
+# Distribution of risk 
+
+```{r}
+
+facet_data <- test_data %>% select(TC_10risk_cal, TC_prs_10risk, TEU_BrCa_status) %>% 
+  pivot_longer(cols=c(TC_10risk_cal, TC_prs_10risk)) 
+
+density_data <- facet_data %>%
+  mutate(
+    name = ifelse(TEU_BrCa_status == 0, paste0(name, "_control"), paste0(name, "_case")),
+    Model = factor(name, 
+                   levels=c("TC_10risk_cal_control", "TC_10risk_cal_case",
+                            "TC_prs_10risk_control", "TC_prs_10risk_case"),
+                   labels = c("Tyrer-Cuzick controls", "Tyrer-Cuzick cases",
+                              "Tyrer-Cuzick with PRS_BC controls", "Tyrer-Cuzick with PRS_BC cases")))
+
+ggplot(density_data, 
+       aes(x=value, fill=Model)) + 
+  geom_density(alpha=0.4, position="identity") +
+  ggtitle("Density plot of 10yr predicted risk by model in test data, split by cases and controls") +
+  theme(legend.position = c(0.8, 0.8)) +
+  xlim(0, 0.2) +
+  geom_vline(xintercept=0.05)
+  
+
+ggsave(file.path(config$outputs$figures, "TC_density_10yrrisk.png"), 
+       scale=0.7, width=25, height=15, units="cm")
+
+
+
+
+```
+
+```{r}
+
+facet_data <- test_data %>% select(gail_10risk_cal, gail_prs_10risk, TEU_BrCa_status) %>% 
+  pivot_longer(cols=c(gail_10risk_cal, gail_prs_10risk)) 
+
+density_data <- facet_data %>%
+  mutate(
+    name = ifelse(TEU_BrCa_status == 0, paste0(name, "_control"), paste0(name, "_case")),
+    Model = factor(name, 
+                   levels=c("gail_10risk_cal_control", "gail_10risk_cal_case",
+                            "gail_prs_10risk_control", "gail_prs_10risk_case"),
+                   labels = c("Gail controls", "Gail cases",
+                              "Gail with PRS_BC controls", "Gail with PRS_BC cases")))
+
+ggplot(density_data, 
+       aes(x=value, fill=Model)) + 
+  geom_density(alpha=0.4, position="identity") +
+  ggtitle("Density plot of 10yr predicted risk by model in test data, split by cases and controls") +
+  theme(legend.position = c(0.8, 0.8)) +
+  xlim(0, 0.2) +
+  geom_vline(xintercept=0.05)
+  
+
+ggsave(file.path(config$outputs$figures, "Gail_density_10yrrisk.png"), 
+       scale=0.7, width=25, height=15, units="cm")
+
+
+
+```
+
+
+
+
+# Fixed risk threshold
+
+```{r}
+
+nri <- nricens(time=test_data$TEU_BrCa_time, event=test_data$TEU_BrCa_status,
+        p.std=test_data$TC_10risk_cal, p.new=test_data$TC_prs_10risk,
+        t0=10, cut=0.05, msg=FALSE)
+
+# kable(nri$nri)
+
+################
+# Tyrer-Cuzick #
+################
+
+# Cases
+print("Cases")
+nri_tab(table(test_data$TC_10risk_cat[test_data$TEU_BrCa_time <= 10 & test_data$TEU_BrCa_status==1], 
+              test_data$TC_prs_10risk_cat[test_data$TEU_BrCa_time <= 10 & test_data$TEU_BrCa_status==1]), 
+        population="Cases", model_old="Tyrer-Cuzick", model_new="Tyrer-Cuzick + PRS")
+
+
+# Controls
+print("Controls")
+nri_tab(table(test_data$TC_10risk_cat[test_data$TEU_BrCa_time > 10], 
+              test_data$TC_prs_10risk_cat[test_data$TEU_BrCa_time > 10]), 
+        population="Controls", model_old="Tyrer-Cuzick", model_new="Tyrer-Cuzick + PRS")
+
+
+```
+
+
+
+```{r}
+
+nri <- nricens(time=test_data$TEU_BrCa_time, event=test_data$TEU_BrCa_status,
+        p.std=test_data$gail_10risk_cal, p.new=test_data$gail_prs_10risk,
+        t0=10, cut=0.05, msg=FALSE)
+
+# kable(nri$nri)
+
+################
+# Gail #
+################
+
+# Cases
+print("Cases")
+nri_tab(table(test_data$gail_10risk_cat[test_data$TEU_BrCa_time <= 10 & test_data$TEU_BrCa_status==1],
+              test_data$gail_prs_10risk_cat[test_data$TEU_BrCa_time <= 10 & test_data$TEU_BrCa_status==1]),
+        population="Cases", model_old="Gail", model_new="Gail + PRS")
+
+# Controls
+print("Controls")
+nri_tab(table(test_data$gail_10risk_cat[test_data$TEU_BrCa_time > 10],
+              test_data$gail_prs_10risk_cat[test_data$TEU_BrCa_time > 10]),
+        population="Controls", model_old="Gail", model_new="Gail + PRS")
+
+
+```
+
+
+# Results using Mavaddat 313-SNP PRS
+
+
+```{r, fig.height=9}
+
+
+model_TC <- coxph(Surv(TEU_BrCa_time, TEU_BrCa_status) ~
+                        TC_10risk_cal + TEU_BrCa_313_PRS_center + GeP_Array + 
+                        GeP_PC_1 + GeP_PC_2 + GeP_PC_3 + GeP_PC_4,
+                 data=train_data)
+
+test_data$TC_prs313_10risk <- get.risk.coxph_test(model_TC, t0=10, newdata=test_data)
+
+model_gail <- coxph(Surv(TEU_BrCa_time, TEU_BrCa_status) ~
+                        gail_10risk_cal + TEU_BrCa_313_PRS_center + GeP_Array + 
+                        GeP_PC_1 + GeP_PC_2 + GeP_PC_3 + GeP_PC_4,
+                 data=train_data)
+
+test_data$gail_prs313_10risk <- get.risk.coxph_test(model_gail, t0=10, newdata=test_data)
+
+
+
+
+```
+
+```{r}
+# How many women are above 5% 10yr risk according to the original model?
+
+TC_5pct <- table(test_data$TC_10risk_cal > 0.05, useNA='ifany')
+TC_5prop <- TC_5pct[2]/nrow(test_data)
+TC_prs_threshold <- quantile(test_data$TC_prs313_10risk, probs=c(1-TC_5prop))
+TC_Mav2019_threshold <- quantile(test_data$TC_10risk_Mavaddat2019_cal, probs=c(1-TC_5prop))
+
+
+gail_5pct <- table(test_data$gail_10risk_cal > 0.05, useNA='ifany')
+gail_5prop <- gail_5pct[2]/nrow(test_data)
+gail_prs_threshold <- quantile(test_data$gail_prs313_10risk, probs=c(1-gail_5prop))
+
+
+# How many women are above 5% 10yr risk after adding the PRS?
+
+TC_combined_5pct <- table(test_data$TC_prs313_10risk > 0.05) 
+
+gail_combined_5pct <- table(test_data$gail_prs313_10risk > 0.05) 
+
+test_data <- test_data %>% mutate(
+  TC_prs313_10risk_adj = TC_prs313_10risk - (quantile(TC_prs313_10risk, probs=c(1-TC_5prop)) - 0.05),
+  TC_prs313_10risk_adj_cat = factor(ifelse(TC_prs313_10risk <= TC_prs_threshold, 
+                                          paste0("<=", round(100*TC_prs_threshold,2), "%"), 
+                                          paste0(">", round(100*TC_prs_threshold,2), "%")),
+                               levels=c(paste0("<=", round(100*TC_prs_threshold,2), "%"), 
+                                        paste0(">", round(100*TC_prs_threshold,2), "%"))),
+  TC_Mav2019_10risk_adj = TC_10risk_Mavaddat2019_cal - (quantile(TC_10risk_Mavaddat2019_cal, 
+                                                                 probs=c(1-TC_5prop)) - 0.05),
+  TC_Mav2019_10risk_adj_cat = factor(ifelse(TC_10risk_Mavaddat2019_cal <= TC_prs_threshold, 
+                                          paste0("<=", round(100*TC_prs_threshold,2), "%"), 
+                                          paste0(">", round(100*TC_prs_threshold,2), "%")),
+                               levels=c(paste0("<=", round(100*TC_prs_threshold,2), "%"), 
+                                        paste0(">", round(100*TC_prs_threshold,2), "%"))),
+  gail_prs313_10risk_adj = gail_prs313_10risk - (quantile(gail_prs313_10risk, probs=c(1-gail_5prop)) - 0.05),
+  gail_prs313_10risk_adj_cat = factor(ifelse(gail_prs313_10risk <= gail_prs_threshold, 
+                                          paste0("<=", round(100*gail_prs_threshold,2), "%"), 
+                                          paste0(">", round(100*gail_prs_threshold,2), "%")),
+                               levels=c(paste0("<=", round(100*gail_prs_threshold,2), "%"), 
+                                        paste0(">", round(100*gail_prs_threshold,2), "%")))
+  )
+
+```
+
+
+```{r, results=FALSE}
+
+# Net reclassification index, for Table 1
+
+# Tyrer-Cuzick
+nri_tc <- nricens(time=test_data$TEU_BrCa_time, event=test_data$TEU_BrCa_status,
+        p.std=test_data$TC_10risk_cal, p.new=test_data$TC_prs313_10risk_adj,
+        t0=10, cut=0.05, msg=FALSE)
+
+nri_tc_mav <- nricens(time=test_data$TEU_BrCa_time, event=test_data$TEU_BrCa_status,
+        p.std=test_data$TC_10risk_cal, p.new=test_data$TC_Mav2019_10risk_adj,
+        t0=10, cut=0.05, msg=FALSE)
+
+# Gail
+nri_gail <- nricens(time=test_data$TEU_BrCa_time, event=test_data$TEU_BrCa_status,
+        p.std=test_data$gail_10risk_cal, p.new=test_data$gail_prs313_10risk_adj,
+        t0=10, cut=0.05, msg=FALSE)
+
+nri_ci <- function(nri_output, type="overall", dp=3){
+  row <- dplyr::case_when(
+    type=="overall" ~ 1,
+    type=="case" ~ 2,
+    type=="control" ~ 3
+  )
+  est <- nri_output$nri$Estimate[row]
+  lci <- nri_output$nri$Lower[row]
+  uci <- nri_output$nri$Upper[row]
+  
+  return(paste0(pretty_dp(est, dp=dp), " ", pretty_confint(lci, uci, dp=dp)))
+}
+
+```
+
+```{r}
+
+dt <- data.frame(model=c("Tyrer-Cuzick", "Model only", "Model with PRS", "Integrated PRS",
+                         "Gail", "Model only", "Model with PRS"),
+                 AUC=c(NA,
+                       AUC_CI(df=test_data, score="TC_10risk_cal", status = "TEU_BrCa_status", dp=2),
+                       AUC_CI(df=test_data, score="TC_prs313_10risk", status = "TEU_BrCa_status", dp=2),
+                       AUC_CI(df=test_data, score="TC_10risk_Mavaddat2019_cal", status = "TEU_BrCa_status", dp=2),
+                       NA,
+                       AUC_CI(df=test_data, score="gail_10risk_cal", status = "TEU_BrCa_status", dp=2),
+                       AUC_CI(df=test_data, score="gail_prs313_10risk", status = "TEU_BrCa_status", dp=2)),
+                 NRI_overall=c(NA, NA, nri_ci(nri_tc, type="overall", dp=3), nri_ci(nri_tc_mav, type="overall", dp=3), 
+                               NA, NA, nri_ci(nri_gail, type="overall", dp=3)),
+                 NRI_case=c(NA, NA, nri_ci(nri_tc, type="case", dp=3), nri_ci(nri_tc_mav, type="case", dp=3), 
+                               NA, NA, nri_ci(nri_gail, type="case", dp=3)),
+                 NRI_control=c(NA, NA, nri_ci(nri_tc, type="control", dp=3), nri_ci(nri_tc_mav, type="control", dp=3), 
+                               NA, NA, nri_ci(nri_gail, type="control", dp=3)))
+
+ft <- flextable(dt) %>%
+  # merge_v(j = ~ model + NRI_overall + NRI_case + NRI_control) %>%
+  # separate_header(sep="_") %>%
+  set_header_labels(model="Model", AUC="AUC (95% CI)",
+                    NRI_overall="Overall", 
+                    NRI_case=paste0("Case (N=", nrow(test_data[test_data$TEU_BrCa_time <= 10 &
+                                                                 test_data$TEU_BrCa_status==1,]), ")"), 
+                    NRI_control=paste0("Control (N=", nrow(test_data[test_data$TEU_BrCa_time > 10,]), ")")) %>%
+  add_header_row(values=c("", "NRI"), colwidths=c(2, 3)) %>%
+  align(align = "center", part = "all", j=c('AUC', 'NRI_overall', 'NRI_case', 'NRI_control')) %>%
+  bg(i= ~ is.na(AUC), bg="lightgrey", part="body") %>%
+  merge_at(i=1, j=1:5) %>%
+  merge_at(i=5, j=1:5) %>%
+  fix_border_issues(part="all") %>%
+  set_table_properties(layout="autofit") %>%
+  footnote(i=1, j=3, 
+           value=as_paragraph("NRI: Net Reclassification Index for 10yr risks from model with PRS compared to Calibrated model, with a fixed proportion of women classified as high risk"), 
+           ref_symbols="a", part="header") %>%
+  footnote(i=2, j=3, 
+           value=as_paragraph("Overall NRI = Case NRI + Control NRI, where cases are defined as individuals diagnosed with breast cancer within 10 years and controls are defined as individuals who were still at risk of breast cancer by 10 years of follow-up."), 
+           ref_symbols="b", part="header") %>%
+  footnote(i=6, j=1, 
+           value=as_paragraph("Integrated PRS is the output from the Tyrer-Cuzick model run with the PRS as an input, formatted as a log(OR)"), 
+           ref_symbols="c", part="body")
+
+ft
+
+```
+
+
+
+
