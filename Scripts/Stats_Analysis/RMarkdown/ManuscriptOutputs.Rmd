@@ -146,7 +146,7 @@ exclusions <- function(data) {
   excl$meno <<- nrow(data)
   
   # Restrict to White British (genetically)
-  data <- data[!is.na(data$GeP_ethnic),]
+  # data <- data[!is.na(data$GeP_ethnic),]
   excl$whitebrit <<- nrow(data)
   
   # Exclude those outside the 40-70 age range
@@ -203,8 +203,8 @@ data <- data %>% mutate(
 
 # Separate out test and training data
 # train_IDs <- data$ID[data$train_set==TRUE]
-# write.csv(train_IDs, file.path(config$data$derived, "training_ids.csv"), row.names = FALSE)
-train_IDs <- read.csv(file.path(config$data$derived, "training_ids.csv"))$x
+# write.csv(train_IDs, file.path(config$data$derived, "training_ids_mixedeth.csv"), row.names = FALSE)
+train_IDs <- read.csv(file.path(config$data$derived, "training_ids_mixedeth.csv"))$x
 
 train_data <- data %>% filter(ID %in% train_IDs)
 
