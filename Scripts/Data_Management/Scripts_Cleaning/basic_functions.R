@@ -461,7 +461,7 @@ FN_HES_diagnoses <- function(icd=10,
   
   # Connect to database
   dbname <- file.path(HESPath, "hes.db")
-  con <- DBI::dbConnect(duckdb::duckdb(), dbname)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbname, read_only = TRUE)
   on.exit(DBI::dbDisconnect(con, shutdown=TRUE))
   
   hesin <- tbl(con, "hesin")
@@ -506,7 +506,7 @@ FN_HES_operations <- function(opcs=4,
   
   # Connect to database
   dbname <- file.path(HESPath, "hes.db")
-  con <- DBI::dbConnect(duckdb::duckdb(), dbname)
+  con <- DBI::dbConnect(duckdb::duckdb(), dbname, read_only = TRUE)
   on.exit(DBI::dbDisconnect(con, shutdown=TRUE))
   
   hesin <- tbl(con, "hesin")
