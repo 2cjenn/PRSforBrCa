@@ -409,12 +409,16 @@ nri_ci <- function(nri_output, type="overall", dp=3){
 
 dt <- data.frame(model=c("Tyrer-Cuzick", "Model only", "Model with PRS", 
                          "Gail", "Model only", "Model with PRS"),
-                 AUC=c(NA,
-                       AUC_CI(df=test_data, score="TC_10risk_cal", status = "TEU_BrCa_status", dp=2),
-                       AUC_CI(df=test_data, score="TC_prs_10risk", status = "TEU_BrCa_status", dp=2),
+                 HarrellC=c(NA,
+                       HarrellC_CI(df=test_data, score="TC_10risk_cal", 
+                                   time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2),
+                       HarrellC_CI(df=test_data, score="TC_prs_10risk", 
+                                   time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2),
                        NA,
-                       AUC_CI(df=test_data, score="gail_10risk_cal", status = "TEU_BrCa_status", dp=2),
-                       AUC_CI(df=test_data, score="gail_prs_10risk", status = "TEU_BrCa_status", dp=2)),
+                       HarrellC_CI(df=test_data, score="gail_10risk_cal", 
+                                   time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2),
+                       HarrellC_CI(df=test_data, score="gail_prs_10risk", 
+                                   time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2)),
                  NRI_overall=c(NA, nri_ci(nri_tc, type="overall", dp=3), nri_ci(nri_tc, type="overall", dp=3), 
                                NA, nri_ci(nri_gail, type="overall", dp=3), nri_ci(nri_gail, type="overall", dp=3)),
                  NRI_case=c(NA, nri_ci(nri_tc, type="case", dp=3), nri_ci(nri_tc, type="case", dp=3), 
@@ -425,14 +429,14 @@ dt <- data.frame(model=c("Tyrer-Cuzick", "Model only", "Model with PRS",
 ft <- flextable(dt) %>%
   merge_v(j = ~ model + NRI_overall + NRI_case + NRI_control) %>%
   # separate_header(sep="_") %>%
-  set_header_labels(model="Model", AUC="AUC (95% CI)",
+  set_header_labels(model="Model", HarrellC="Harrell's C (95% CI)",
                     NRI_overall="Overall", 
                     NRI_case=paste0("Case (N=", nrow(test_data[test_data$TEU_BrCa_time <= 10 &
                                                                  test_data$TEU_BrCa_status==1,]), ")"), 
                     NRI_control=paste0("Control (N=", nrow(test_data[test_data$TEU_BrCa_time > 10,]), ")")) %>%
   add_header_row(values=c("", "NRI"), colwidths=c(2, 3)) %>%
-  align(align = "center", part = "all", j=c('AUC', 'NRI_overall', 'NRI_case', 'NRI_control')) %>%
-  bg(i= ~ is.na(AUC), bg="lightgrey", part="body") %>%
+  align(align = "center", part = "all", j=c("HarrellC", 'NRI_overall', 'NRI_case', 'NRI_control')) %>%
+  bg(i= ~ is.na(HarrellC), bg="lightgrey", part="body") %>%
   merge_at(i=1, j=1:5) %>%
   merge_at(i=4, j=1:5) %>%
   fix_border_issues(part="all") %>%
@@ -1222,13 +1226,18 @@ nri_ci <- function(nri_output, type="overall", dp=3){
 
 dt <- data.frame(model=c("Tyrer-Cuzick", "Model only", "Model with PRS", "Integrated PRS",
                          "Gail", "Model only", "Model with PRS"),
-                 AUC=c(NA,
-                       AUC_CI(df=test_data, score="TC_10risk_cal", status = "TEU_BrCa_status", dp=2),
-                       AUC_CI(df=test_data, score="TC_prs313_10risk", status = "TEU_BrCa_status", dp=2),
-                       AUC_CI(df=test_data, score="TC_10risk_Mavaddat2019_cal", status = "TEU_BrCa_status", dp=2),
+                 HarrellC=c(NA,
+                       HarrellC_CI(df=test_data, score="TC_10risk_cal", 
+                              time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2),
+                       HarrellC_CI(df=test_data, score="TC_prs313_10risk", 
+                              time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2),
+                       HarrellC_CI(df=test_data, score="TC_10risk_Mavaddat2019_cal", 
+                              time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2),
                        NA,
-                       AUC_CI(df=test_data, score="gail_10risk_cal", status = "TEU_BrCa_status", dp=2),
-                       AUC_CI(df=test_data, score="gail_prs313_10risk", status = "TEU_BrCa_status", dp=2)),
+                       HarrellC_CI(df=test_data, score="gail_10risk_cal", 
+                              time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2),
+                       HarrellC_CI(df=test_data, score="gail_prs313_10risk", 
+                              time="TEU_BrCa_time", status = "TEU_BrCa_status", dp=2)),
                  NRI_overall=c(NA, NA, nri_ci(nri_tc, type="overall", dp=3), nri_ci(nri_tc_mav, type="overall", dp=3), 
                                NA, NA, nri_ci(nri_gail, type="overall", dp=3)),
                  NRI_case=c(NA, NA, nri_ci(nri_tc, type="case", dp=3), nri_ci(nri_tc_mav, type="case", dp=3), 
@@ -1239,14 +1248,14 @@ dt <- data.frame(model=c("Tyrer-Cuzick", "Model only", "Model with PRS", "Integr
 ft <- flextable(dt) %>%
   # merge_v(j = ~ model + NRI_overall + NRI_case + NRI_control) %>%
   # separate_header(sep="_") %>%
-  set_header_labels(model="Model", AUC="AUC (95% CI)",
+  set_header_labels(model="Model", HarrellC="Harrell's C (95% CI)",
                     NRI_overall="Overall", 
                     NRI_case=paste0("Case (N=", nrow(test_data[test_data$TEU_BrCa_time <= 10 &
                                                                  test_data$TEU_BrCa_status==1,]), ")"), 
                     NRI_control=paste0("Control (N=", nrow(test_data[test_data$TEU_BrCa_time > 10,]), ")")) %>%
   add_header_row(values=c("", "NRI"), colwidths=c(2, 3)) %>%
-  align(align = "center", part = "all", j=c('AUC', 'NRI_overall', 'NRI_case', 'NRI_control')) %>%
-  bg(i= ~ is.na(AUC), bg="lightgrey", part="body") %>%
+  align(align = "center", part = "all", j=c("HarrellC", 'NRI_overall', 'NRI_case', 'NRI_control')) %>%
+  bg(i= ~ is.na(HarrellC), bg="lightgrey", part="body") %>%
   merge_at(i=1, j=1:5) %>%
   merge_at(i=5, j=1:5) %>%
   fix_border_issues(part="all") %>%

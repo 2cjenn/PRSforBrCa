@@ -480,3 +480,17 @@ AUC_CI<-function(df,status="TEU_T2DM_status",score,method="delong", dp=3){
 }
 
 
+HarrellC_CI <- function(df, status, time, score, dp=3) {
+  # https://www.rdocumentation.org/packages/Hmisc/versions/5.1-1/topics/rcorr.cens
+  
+  stat <- Hmisc::rcorr.cens(x=df[[score]], S=Surv(time=df[[time]], event=df[[status]]))
+  
+  HarrellC <- 1 - stat["C Index"]
+  se <- stat["S.D."]/2
+  LCI <- HarrellC - (1.96 * se)
+  UCI <- HarrellC + (1.96 * se)
+  
+  result <- paste0(pretty_dp(HarrellC, dp), pretty_confint(LCI, UCI, dp=dp))
+  
+  return(result)
+}
