@@ -324,7 +324,7 @@ dt <- data.frame(var=c("Tyrer-Cuzick", "Gail"),
 ft <- flextable(dt) %>%
   set_header_labels(var="Model", model="10-year risk score HR per SD", prs="PRS HR per SD") %>%
   set_table_properties(layout="autofit") %>%
-  footnote(i=1, j=1, 
+  flextable::footnote(i=1, j=1, 
            value=as_paragraph("Hazard ratio per standard deviation from a Cox model containing 10-year risk score from breast cancer risk prediction model, Genomics plc PRS, genetic array and first 4 principal components of genetic ancestry, in the training data"), 
            ref_symbols="a", part="header")
 
@@ -437,10 +437,10 @@ ft <- flextable(dt) %>%
   merge_at(i=4, j=1:5) %>%
   fix_border_issues(part="all") %>%
   set_table_properties(layout="autofit") %>%
-  footnote(i=1, j=3, 
+  flextable::footnote(i=1, j=3, 
            value=as_paragraph("NRI: Net Reclassification Index for 10yr risks from model with PRS compared to Calibrated model, with a fixed proportion of women classified as high risk"), 
            ref_symbols="a", part="header") %>%
-  footnote(i=2, j=3, 
+  flextable::footnote(i=2, j=3, 
            value=as_paragraph("Overall NRI = Case NRI + Control NRI, where cases are defined as individuals diagnosed with breast cancer within 10 years and controls are defined as individuals who were still at risk of breast cancer by 10 years of follow-up."), 
            ref_symbols="b", part="header")
 
@@ -638,7 +638,7 @@ nri_tab <- function(p, population, model_old, model_new) {
     hline(i=c(2)) %>%
     vline(j=c(2, 4)) %>%
     fix_border_issues(part="all") %>%
-    footnote(i=1, j=1, value=as_paragraph("Cases defined as individuals diagnosed with breast cancer within 10 years. Controls defined as individuals who were still at risk of breast cancer by 10 years of follow-up. Individuals censored before 10 years are not displayed."), 
+    flextable::footnote(i=1, j=1, value=as_paragraph("Cases defined as individuals diagnosed with breast cancer within 10 years. Controls defined as individuals who were still at risk of breast cancer by 10 years of follow-up. Individuals censored before 10 years are not displayed."), 
            ref_symbols="a", part="header")
 }
 
@@ -924,7 +924,7 @@ tc_data <- train_data %>%
            TRUE ~ "Not current"
          ), levels=c("Not current", "Current"))) %>%
   select(ID, BaC_Age, TEU_BrCa_time, TEU_BrCa_status, 
-                                 tc_varlist) %>%
+                                 all_of(tc_varlist)) %>%
   drop_na
 
 tc_formula <- paste0("Surv(TEU_BrCa_time, TEU_BrCa_status) ~ BaC_Age + ", paste0(tc_varlist, collapse=" + "))
@@ -966,7 +966,7 @@ gail_data <- train_data %>%
          AgeCat = cut(BaC_Age, breaks=c(0, 50, 100), labels=c("<50yr", ">=50yr"))
          ) %>%
   select(ID, BaC_Age, TEU_BrCa_time, TEU_BrCa_status, 
-                                 gail_varlist) %>%
+                                 all_of(gail_varlist)) %>%
   drop_na
 
 gail_cox <- coxph(as.formula(Surv(TEU_BrCa_time, TEU_BrCa_status) ~ FSF_AgeMenarche + 
@@ -1235,10 +1235,10 @@ test_data <- test_data %>% mutate(
   TC_Mav2019_10risk_adj = TC_10risk_Mavaddat2019_cal - (quantile(TC_10risk_Mavaddat2019_cal, 
                                                                  probs=c(1-TC_5prop)) - 0.05),
   TC_Mav2019_10risk_adj_cat = factor(ifelse(TC_10risk_Mavaddat2019_cal <= TC_prs_threshold, 
-                                          paste0("<=", round(100*TC_prs_threshold,2), "%"), 
-                                          paste0(">", round(100*TC_prs_threshold,2), "%")),
-                               levels=c(paste0("<=", round(100*TC_prs_threshold,2), "%"), 
-                                        paste0(">", round(100*TC_prs_threshold,2), "%"))),
+                                          paste0("<=", round(100*TC_Mav2019_threshold,2), "%"), 
+                                          paste0(">", round(100*TC_Mav2019_threshold,2), "%")),
+                               levels=c(paste0("<=", round(100*TC_Mav2019_threshold,2), "%"), 
+                                        paste0(">", round(100*TC_Mav2019_threshold,2), "%"))),
   gail_prs313_10risk_adj = gail_prs313_10risk - (quantile(gail_prs313_10risk, probs=c(1-gail_5prop)) - 0.05),
   gail_prs313_10risk_adj_cat = factor(ifelse(gail_prs313_10risk <= gail_prs_threshold, 
                                           paste0("<=", round(100*gail_prs_threshold,2), "%"), 
@@ -1316,13 +1316,13 @@ ft <- flextable(dt) %>%
   merge_at(i=5, j=1:5) %>%
   fix_border_issues(part="all") %>%
   set_table_properties(layout="autofit") %>%
-  footnote(i=1, j=3, 
+  flextable::footnote(i=1, j=3, 
            value=as_paragraph("NRI: Net Reclassification Index for 10yr risks from model with PRS compared to Calibrated model, with a fixed proportion of women classified as high risk"), 
            ref_symbols="a", part="header") %>%
-  footnote(i=2, j=3, 
+  flextable::footnote(i=2, j=3, 
            value=as_paragraph("Overall NRI = Case NRI + Control NRI, where cases are defined as individuals diagnosed with breast cancer within 10 years and controls are defined as individuals who were still at risk of breast cancer by 10 years of follow-up."), 
            ref_symbols="b", part="header") %>%
-  footnote(i=6, j=1, 
+  flextable::footnote(i=4, j=1, 
            value=as_paragraph("Integrated PRS is the output from the Tyrer-Cuzick model run with the PRS as an input, formatted as a log(OR)"), 
            ref_symbols="c", part="body")
 

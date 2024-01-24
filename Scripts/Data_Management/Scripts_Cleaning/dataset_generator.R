@@ -143,6 +143,7 @@ DBfunc$source_rotation <- function(data, field_definitions) {
 
 # Actually do the deriving
 DBfunc$derive_fn <- function(data, field_definition) {
+  print(paste0("Deriving ", field_definition$name))
   tic()
   colfunc <- field_definition$mapper
   if(length(field_definition$source)>1){
@@ -150,7 +151,6 @@ DBfunc$derive_fn <- function(data, field_definition) {
   } else {
     data[[field_definition$name]] <- colfunc(data[[field_definition$source]])
   }
-  print(paste0("Derived ", field_definition$name))
   toc()
 
   return(data)

@@ -8,7 +8,7 @@ data:
  prs: "K:/TEU/UKB_Genetic_Data/bmrc-ukb-repo/prs/projects/htn-evangelou2018/outputs"
  relatedness: "K:/TEU/UKB_Genetic_Data/Link_Files/33952/ukb33952_rel_s488282.dat"
 cleaning:
- withdrawals: "K:/TEU/UKB33952_Data/Data_Downloads/Withdrawals/w33952_2023-04-25.csv"
+ withdrawals: "K:/TEU/UKB33952_Data/Data_Downloads/Withdrawals/w33952_2023-08-21.csv"
  renaming: "K:/TEU/UKB33952_Data/Data_Dictionary/Renaming_List_UPDATE_Sep2023_TEU.csv"
  coding: "K:/TEU/UKB33952_Data/Data_Dictionary/Mappings/Encoding_files"
  mapping: "K:/TEU/UKB33952_Data/Data_Dictionary/Mappings/Analysis_codings_xlsx/BrstCancer"
