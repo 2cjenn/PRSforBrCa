@@ -1881,19 +1881,6 @@ TC_FaH <- function(){
       post_exclusion = FALSE,
       display_name = "Sibling(s) breast cancer status",
       description = "Has a sibling had breast cancer, set to 0 if not relevant, missing or unknown"
-    ),
-    list(
-      name = "TC_FatherBrCa",
-      source = c("ID", paste0("FaH_FatherIll.0.", c(0:9))),
-      mapper = function(data){
-        brca <- data %>% pivot_longer(cols=starts_with("FaH_FatherIll.0.")) %>%
-          filter(value =="Breast cancer")
-        y <- ifelse(data[["ID"]] %in% brca$ID, "Yes", "No")
-        return(y)
-      },
-      post_exclusion = FALSE,
-      display_name = "Paternal breast cancer status",
-      description = "Has the father had breast cancer, set to 0 if not relevant, missing or unknown"
     )
   )
   

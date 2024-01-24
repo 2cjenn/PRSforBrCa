@@ -331,10 +331,7 @@ tcify <- function(data, nsis) {
   tc_data <- cbind(tc_data, table3)
   
   v8 <- data %>% transmute(
-    t1_FatherBrCa = dplyr::case_when(
-      TC_FatherBrCa=="Yes" ~ 1,
-      TC_FatherBrCa=="No" ~ 0,
-      ), # All No but include anyway for completion
+    t1_FatherBrCa = 0, # No data
     t2_BrotherBrCa = dplyr::case_when(
       TC_SiblingBrCa == "Yes" & 
         (TC_NSisters == 0 | is.na(TC_NSisters)) & 

@@ -826,7 +826,7 @@ part1 <- tableby(PRS_bc_std_q ~
                    TC_OvarianCaDx + Biopsy_Prevalent +
                    # Family history
                    TC_MotherBrCa + 
-                   TC_NSisters + TC_SiblingBrCa + TC_FatherBrCa,
+                   TC_NSisters + TC_SiblingBrCa,
                  data=data %>% mutate(Biopsy_Prevalent=factor(Biopsy_Prevalent)), 
                  control=my_controls)
 
@@ -897,7 +897,7 @@ tc_varlist <- c("FSF_AgeMenopause", "FSF_AgeMenarche", "Height", "BMI",
                 "AgeFirstBirth", "TC_HRT_imputed", "AtypicalHyperplasia")
                 # "TEU_BaC_AgeAtRec", "TC_Parity", 
                 # "AtypicalHyperplasia", "TC_OvarianCaDx", "TC_OvarianCaAge", "FSF_HRTDuration", 
-                # "FSF_HRT_timesince", "TC_MotherBrCa", "TC_NSisters", "TC_SiblingBrCa", "TC_FatherBrCa")
+                # "FSF_HRT_timesince", "TC_MotherBrCa", "TC_NSisters", "TC_SiblingBrCa")
 
 tc_data <- train_data %>% 
   mutate(BMI = Weight/(Height/100)^2,
