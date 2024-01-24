@@ -143,8 +143,10 @@ specs <- function() {
     list(
       train_set,
       TC_risk(dir=file.path(config$data$derived), years=10, prs=NULL),
+      TC_risk(dir=file.path(config$data$derived), years=10, prs="GenomicsPLC"),
       TC_risk(dir=file.path(config$data$derived), years=10, prs="Mavaddat2019"),
       TC_risk_cal(years=10, prs=NULL),
+      TC_risk_cal(years=10, prs="GenomicsPLC"),
       TC_risk_cal(years=10, prs="Mavaddat2019")
     )
   )

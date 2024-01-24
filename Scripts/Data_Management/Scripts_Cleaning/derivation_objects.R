@@ -1519,6 +1519,22 @@ genomics_prs <- function(){
       description = "Genomics plc standard PRS for breast cancer"
     ),
     list(
+      name = "PRS_bc_adj",
+      source = c("PRS_bc_std"),
+      mapper = function(x) {
+        PRS_std <- (x - mean(x)) / sd(x)
+        
+        # log(OR) per SD of PRS, from model with PRS only, from supplementary Materials of Thompson2022 (S7 Performance (diseases))
+        logORperSD <- log(1.82383417)
+        
+        PRS_adj <- PRS_std - ((logORperSD^2)/2)
+        return(PRS_adj)
+      },
+      post_exclusion = TRUE,
+      display_name = "Genomics plc standard PRS for breast cancer",
+      description = "Genomics plc standard PRS for breast cancer, adjusted such that the mean predicted risk is equal to the population mean risk as per Pharoah et al 2002"
+    ),
+    list(
       name = "PRS_bc_std_q",
       source = c("PRS_bc_std"),
       mapper = FN_quantiles(

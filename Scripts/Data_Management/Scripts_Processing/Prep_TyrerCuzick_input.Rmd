@@ -380,9 +380,10 @@ while(start < nrows) {
 }
 
 #-------------#
-# Run 3 times #
+# Run 4 times #
 #-------------#
 # t5_PRS = 0, filename "noPRS"
+# t5_PRS = PRS_bc_adj, filename "withPRS/GenomicsPLC"
 # t5_PRS = TEU_BrCa_313_PRS_center, filename "withPRS/Mavaddat2019"
 # t5_PRS = TEU_BrCa_100k_PRS_center, filename = "withPRS/Fritsche2020"
 # Note that the different PRS are on different scales
