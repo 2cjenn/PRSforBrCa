@@ -34,7 +34,7 @@ library(etm)
 library(plotROC) # For XML dependency, used install.packages("XML", type = "binary") to avoid compilation issues
 library(gridExtra)
 library(maps)
-library(pROC)
+library(timeROC)
 
 # Pretty tables
 library(arsenal)
@@ -557,59 +557,55 @@ gridExtra::grid.arrange(TC_cal, gail_cal, legend, TC_cal2, gail_cal2,
 
 ```{r, fig.width=12, warning=FALSE}
 
-# ROC plot
-# https://rviews.rstudio.com/2019/03/01/some-r-packages-for-roc-curves/
-# https://cran.r-project.org/web/packages/plotROC/plotROC.pdf
-# https://cran.r-project.org/web/packages/plotROC/vignettes/examples.html
+# Time-dependent ROC at 10 years, using timeROC
 
-# New approach uses pROC, Xiaonan's code
-# https://gitlab.ndph.ox.ac.uk/jenniferco/prsondiabetes/-/blob/Riskscore/Scripts/Stats_Analysis/RMarkdown/RiskScore_Primary.Rmd#auc
-
-
-
-roc_plot <- function(data, modelname, prsname, plotname,
+td_roc_plot <- function(data, modelname, prsname, plotname,
                      varlist=c("gail_10risk_cal", "PRS_bc_std", "gail_prs_10risk")){
   
-  AUC_CIs <- sapply(varlist, function(x) AUC_CI(df=data, score=x, status = "TEU_BrCa_status", dp=2))
+  # Time-dependent ROC
+  tROC <- lapply(varlist,
+                 function(i) timeROC::timeROC(T=data$TEU_BrCa_time, 
+                                              delta=data$TEU_BrCa_status, 
+                                              marker=data[[i]],
+                                              cause=1, times=c(9, 10), weighting="marginal"))
   
-  AUC_labels <- c(
-    paste0(modelname, " 10-yr risk: ", AUC_CIs[1]),
-    paste0(prsname, " PRS: ", AUC_CIs[2]),
-    paste0(modelname, " & PRS 10-yr risk: ", AUC_CIs[3])
-  )
+  tROC_long <- rbind(cbind(tROC[[1]][["TP"]], tROC[[1]][["FP"]]),
+                     cbind(tROC[[2]][["TP"]], tROC[[2]][["FP"]]),
+                     cbind(tROC[[3]][["TP"]], tROC[[3]][["FP"]]))
+  colnames(tROC_long) <- c("TP_9", "TP_10", "FP_9", "FP_10")
+  tROC_df <- data.frame(tROC_long)
+  tROC_df$Model <- factor(c(rep(paste0(modelname, " 10-yr risk"), times=dim(tROC[[1]][["TP"]])[1]),
+                     rep(paste0(prsname, " PRS"), times=dim(tROC[[2]][["TP"]])[1]),
+                     rep(paste0(modelname, " & PRS 10-yr risk"), times=dim(tROC[[3]][["TP"]])[1])),
+                     levels=c(paste0(modelname, " 10-yr risk"),
+                              paste0(prsname, " PRS"),
+                              paste0(modelname, " & PRS 10-yr risk")))
   
-  long <- data %>%
-    select(ID, TEU_BrCa_status, all_of(varlist)) %>%
-    pivot_longer(!c("ID","TEU_BrCa_status"), names_to = "Score", values_to = "Value") %>%
-    mutate(Score=factor(Score,levels = varlist))
-  
-  
-  plot <- ggplot(long, aes(d=TEU_BrCa_status, m=Value, color=Score)) +
-    geom_roc(n.cuts = 0, linealpha = 1, size=1) +
-    style_roc() +
+  plot <- ggplot(tROC_df,aes(x=FP_10, y=TP_10, color=Model))+
+    geom_line(linewidth=1) + style_roc() +
     geom_abline(aes(slope=1, intercept=0), linetype="dashed") +
-    scale_color_manual(name="AUC (95% CI)", labels =  AUC_labels, values = c("#F8766D","#00BA38", "#6193FF")) +
-    labs(title = paste0(plotname), 
-         caption = "Dashed line is y=x") +
-    theme(legend.position = c(0.7, 0.15))
+    xlab("False positive fraction") + ylab("True positive fraction") +
+    scale_color_manual(name="Model",values = c("#F8766D","#00BA38", "#6193FF")) +
+    labs(title =plotname, caption = "Dashed line is y=x")+
+    theme(legend.position = c(0.75, 0.15))
   
-  ggsave(file.path(config$outputs$figures, paste0("rocplot_", modelname, ".jpg")), 
-         scale=0.7, width=25, height=15, units="cm")
-  
+  ggsave(file.path(config$outputs$figures, paste0("rocplot_", modelname, ".jpg")),
+       scale=0.7, width=25, height=15, units="cm")
+
   plot
 }
 
 # Tyrer-Cuzick
-TC_roc <- roc_plot(test_data, modelname="TC", prsname="Genomics plc", plotname="Tyrer-Cuzick",
+TC_roc <- td_roc_plot(test_data, modelname="TC", prsname="Genomics plc", plotname="Tyrer-Cuzick",
          varlist=c("TC_10risk_cal", "PRS_bc_std", "TC_prs_10risk"))
 
 # Gail
-gail_roc <- roc_plot(test_data, modelname="Gail", prsname="Genomics plc", plotname="Gail",
+gail_roc <- td_roc_plot(test_data, modelname="Gail", prsname="Genomics plc", plotname="Gail",
          varlist=c("gail_10risk_cal", "PRS_bc_std", "gail_prs_10risk"))
 
 gridExtra::grid.arrange(TC_roc, gail_roc,
                         ncol=2,
-                        top=paste0("ROC curves for 10-yr risk predictions in test data (N=", nrow(test_data), ")"))
+                        top=paste0("Time-dependent ROC curves at 10 years follow up in test data (N=", nrow(test_data), ")"))
 
 ```
 

@@ -467,18 +467,6 @@ cuminc_nocr_plot<-function(data,start,end,status,group,title,legend.title,xlab="
   return(plot)
 }
 
-AUC_CI<-function(df,status="TEU_T2DM_status",score,method="delong", dp=3){
-  
-  roccurve<-pROC::roc(df[[status]]~df[[score]],quiet=TRUE)
-  
-  AUCs_train<-pROC::ci.auc(roccurve,quiet=TRUE,method=method)
-  
-  result<-paste0(pretty_dp(AUCs_train[2],dp), " ", pretty_confint(AUCs_train[1],AUCs_train[3],dp=dp))
-  
-  return(result)
-  
-}
-
 
 HarrellC_CI <- function(df, status, time, score, dp=3) {
   # https://www.rdocumentation.org/packages/Hmisc/versions/5.1-1/topics/rcorr.cens
