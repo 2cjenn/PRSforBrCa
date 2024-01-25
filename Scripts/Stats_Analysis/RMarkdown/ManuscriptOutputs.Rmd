@@ -194,8 +194,8 @@ pretty_list <- pretty_switch(field_definitions=TEU_SPECS$PRSforBrCa, return_type
 
 # Standardise variables so HR are per sd
 data <- data %>% mutate(
-  TC_10risk_sd = TC_10risk_cal/sd(TC_10risk_cal),
-  gail_10risk_sd = gail_10risk_cal/sd(gail_10risk_cal),
+  TC_10risk_sd = TC_10risk/sd(TC_10risk),
+  gail_10risk_sd = gail_10risk/sd(gail_10risk),
   PRS_bc_sd = PRS_bc_std/sd(PRS_bc_std),
   TEU_BrCa_313_PRS_center = TEU_BrCa_313_PRS_center / sd(TEU_BrCa_313_PRS_center),
   TEU_BrCa_100k_PRS_center = TEU_BrCa_100k_PRS_center / sd(TEU_BrCa_100k_PRS_center)
@@ -464,7 +464,7 @@ ft
 
 # Calibration - code adapted from Ruthie's Project and Xiaonan's diabetes work with Leicester score
 
-cal_plot <- function(data, var="TC_10risk", title, xlim=c(0.01,0.07), ylim=c(0.01,0.07)){
+cal_plot <- function(data, var="TC_10risk", title, xlim=c(0, 0.1), ylim=c(0, 0.1)){
 
   # First group into deciles of predicted risk
   deciles <- quantile(data[[var]], probs = seq(0, 1, 0.1))
@@ -521,32 +521,42 @@ cal_plot <- function(data, var="TC_10risk", title, xlim=c(0.01,0.07), ylim=c(0.0
   ggsave(file.path(config$outputs$figures, paste0(var, "_calibration_plot10.jpg")), 
        scale=0.6, width=25, height=15, units="cm")
   
-  return(plot)
+  output <- list(plot=plot, cal_slope=cal_slope, cal_intercept=cal_intercept)
+  
+  return(output)
   
 }
 
-TC_cal <- cal_plot(data=data, var="TC_10risk",
-                   title="Tyrer-Cuzick model")
-gail_cal <- cal_plot(data=data, var="gail_10risk",
-                     title="Gail model") +
-  theme(legend.position="none")
-TC_cal2 <- cal_plot(data=data, var="TC_10risk_cal",
-                   title="Calibrated Tyrer-Cuzick model")
-gail_cal2 <- cal_plot(data=data, var="gail_10risk_cal",
-                     title="Calibrated Gail model") +
-  theme(legend.position="none")
+TC_train <- cal_plot(data=train_data, var="TC_10risk",
+                   title="Tyrer-Cuzick model in training data")
+gail_train <- cal_plot(data=train_data, var="gail_10risk",
+                     title="Gail model in training data")
+
+TC_test <- cal_plot(data=test_data, var="TC_10risk_cal",
+                   title="Calibrated Tyrer-Cuzick model in test data")
+gail_test <- cal_plot(data=test_data, var="gail_10risk_cal",
+                     title="Calibrated Gail model in test data")
+
+TC_prs_cal <- cal_plot(data=test_data, var="TC_prs_10risk",
+                   title="Tyrer-Cuzick model with PRS in test data")
+gail_prs_cal <- cal_plot(data=test_data, var="gail_prs_10risk",
+                     title="Gail model with PRS in test data")
 
 
 # 2. Save the legend
 #+++++++++++++++++++++++
-legend <- get_legend(TC_cal)
-# 3. Remove the legend from the box plot
+legend <- get_legend(TC_train$plot)
+# 3. Remove the legend
 #+++++++++++++++++++++++
-TC_cal <- TC_cal + theme(legend.position="none")
-
-gridExtra::grid.arrange(TC_cal, gail_cal, legend, TC_cal2, gail_cal2,
-                        ncol=3, widths=c(3.5, 3.5, 0.8),
-                        top=paste0("Before and after calibration plots of 10-year observed vs predicted risk by predicted risk decile of each model in the whole analysis population (N=", nrow(data), ")"))
+gridExtra::grid.arrange(TC_train$plot + theme(legend.position="none"), 
+                        gail_train$plot + theme(legend.position="none"), 
+                        legend, 
+                        TC_test$plot + theme(legend.position="none"), 
+                        gail_test$plot + theme(legend.position="none"),
+                        NULL,
+                        TC_prs_cal$plot + theme(legend.position="none"),
+                        gail_prs_cal$plot + theme(legend.position="none"),
+                        ncol=3, widths=c(3.5, 3.5, 0.8))
 
 
 ```

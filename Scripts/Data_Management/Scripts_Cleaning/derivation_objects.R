@@ -1937,32 +1937,37 @@ TC_risk <- function(dir=config$data$derived, years=10, prs=NULL){
 TC_risk_cal <- function(years=10, prs=NULL) {
   list(
     name = ifelse(!is.null(prs), glue("TC_{years}risk_{prs}_cal"), glue("TC_{years}risk_cal")),
-    source = c(ifelse(!is.null(prs), glue("TC_{years}risk_{prs}"), glue("TC_{years}risk")), 
+    source = c("ID", "train_set", 
+               ifelse(!is.null(prs), glue("TC_{years}risk_{prs}"), glue("TC_{years}risk")), 
                "TEU_BrCa_time", "TEU_BrCa_status"),
     mapper = function(data){
       risk_col <- ifelse(!is.null(prs), glue("TC_{years}risk_{prs}"), glue("TC_{years}risk"))
       
+      train_IDs <- read.csv(file.path(config$data$derived, "training_ids.csv"))$x
+      
       # Calibrate on 10 years of follow-up only
-      data <- data[!is.na(risk_col),] %>% 
+      train_data <- data[!is.na(risk_col),] %>% 
+        # filter(train_set == TRUE) %>%
+        filter(ID %in% train_IDs) %>%
         mutate(
           TEU_BrCa_status = ifelse(TEU_BrCa_time < 10, TEU_BrCa_status, 0),
           TEU_BrCa_time = ifelse(TEU_BrCa_time < 10, TEU_BrCa_time, 10)
           )
       
-      data$original <- data[[risk_col]]
+      train_data$original <- train_data[[risk_col]]
       
-      deciles <- quantile(data$original, probs = seq(0, 1, 0.1))
+      deciles <- quantile(train_data$original, probs = seq(0, 1, 0.1))
       
-      data$risk_dec <- cut(data$original, breaks=deciles, 
+      train_data$risk_dec <- cut(train_data$original, breaks=deciles, 
                               right=TRUE, include.lowest=TRUE) 
       
       # Mean predicted risk per decile
-      predicted <- data %>%
+      predicted <- train_data %>%
         group_by(risk_dec) %>% 
         summarise(predicted = mean(original))
       
       # Fit survival curves from Kaplan-Meier and extract observed risks by predicted risk decile
-      fit <- survfit(Surv(TEU_BrCa_time, TEU_BrCa_status) ~ risk_dec, data=data)
+      fit <- survfit(Surv(TEU_BrCa_time, TEU_BrCa_status) ~ risk_dec, data=train_data)
       fit_time <- summary(fit, times = years)
       
       observed <- data.frame(risk_dec = fit_time$strata,
@@ -2049,7 +2054,7 @@ train_set <- function(proportion_train=0.8){
     source = "ID",
     mapper = function(x){
       set.seed(2305)
-      y <- ifelse(runif(x, min=0, max=1)<=0.8, TRUE, FALSE)
+      y <- ifelse(runif(x, min=0, max=1)<=proportion_train, TRUE, FALSE)
       return(y)
     },
     post_exclusion = TRUE,
@@ -2061,31 +2066,35 @@ train_set <- function(proportion_train=0.8){
 Gail_risk_cal <- function(years=10) {
   list(
     name = glue("gail_{years}risk_cal"),
-    source = c(glue("gail_{years}risk"), "TEU_BrCa_time", "TEU_BrCa_status"),
+    source = c("ID", "train_set",
+               glue("gail_{years}risk"), "TEU_BrCa_time", "TEU_BrCa_status"),
     mapper = function(data){
       risk_col <- glue("gail_{years}risk")
       
+      train_IDs <- read.csv(file.path(config$data$derived, "training_ids.csv"))$x
+      
       # Calibrate on 10 years of follow-up only
-      data <- data[!is.na(risk_col),] %>% 
+      train_data <- data[!is.na(risk_col),] %>% 
+        filter(train_set == TRUE) %>%
         mutate(
           TEU_BrCa_status = ifelse(TEU_BrCa_time < 10, TEU_BrCa_status, 0),
           TEU_BrCa_time = ifelse(TEU_BrCa_time < 10, TEU_BrCa_time, 10)
         )
       
-      data$original <- data[[risk_col]]
+      train_data$original <- train_data[[risk_col]]
 
-      deciles <- quantile(data$original, probs = seq(0, 1, 0.1))
+      deciles <- quantile(train_data$original, probs = seq(0, 1, 0.1))
 
-      data$risk_dec <- cut(data$original, breaks=deciles,
+      train_data$risk_dec <- cut(train_data$original, breaks=deciles,
                               right=TRUE, include.lowest=TRUE)
 
       # Mean predicted risk per decile
-      predicted <- data %>%
+      predicted <- train_data %>%
         group_by(risk_dec) %>%
         summarise(predicted = mean(original))
 
       # Fit survival curves from Kaplan-Meier and extract observed risks by predicted risk decile
-      fit <- survfit(Surv(TEU_BrCa_time, TEU_BrCa_status) ~ risk_dec, data=data)
+      fit <- survfit(Surv(TEU_BrCa_time, TEU_BrCa_status) ~ risk_dec, data=train_data)
       fit_time <- summary(fit, times = years)
 
       observed <- data.frame(risk_dec = fit_time$strata,
