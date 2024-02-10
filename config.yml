@@ -13,7 +13,9 @@ cleaning:
  coding: "K:/TEU/UKB33952_Data/Data_Dictionary/Mappings/Encoding_files"
  mapping: "K:/TEU/UKB33952_Data/Data_Dictionary/Mappings/Analysis_codings_xlsx/BrstCancer"
 outputs:
- figures: "Scripts/Stats_Analysis/RMarkdown/Figures/Manuscript"
+ figures: 
+  interim: "Scripts/Stats_Analysis/RMarkdown/Figures/Manuscript"
+  final: "Scripts/Stats_Analysis/RMarkdown/Figures/Final"
  flowcharts: "Scripts/Stats_Analysis/Flowcharts"
 functions: "Scripts/Stats_Analysis/JCfunctions.R"
 scripts:

@@ -225,9 +225,13 @@ label7 <- paste0(excl$hrt-excl$brca, ' previous breast cancer\\l', excl$brca-exc
 
 gv <- read_file(here::here(file.path(config$outputs$flowcharts, "Exclusions.gv")))
 
-export_svg(DiagrammeR::grViz(glue(gv))
-           ) %>% charToRaw %>% rsvg %>%
-  png::writePNG(here::here(file.path(config$outputs$figures, "Exclusions.png")))
+# Supplementary Figure 1
+
+export_svg(DiagrammeR::grViz(glue(gv))) %>% 
+  charToRaw %>% 
+  rsvg %>%
+  png::writePNG(here::here(file.path(config$outputs$figures$final, "SuppFigureS1.png")))
+
 ```
 
 
@@ -268,8 +272,12 @@ test.ph <- cox.zph(model_TC)
 y <- test.ph$y
 colnames(y) <- plot_varnames(colnames(y))
 test.ph$y <- y
+
+# Supplementary Figure 3
+tiff(file.path(config$outputs$figures$final,"SuppFigureS3.tiff"), units="in", width=8, height=5, res=300)
 ggcoxzph(test.ph, point.alpha=0.04, var=c("Tyrer-Cuzick 10yr risk", "PRS_BC"),
          caption="Model also includes genetic array and first 4 principal components of genetic ancestry, plots omitted.")
+dev.off()
 
 
 # Gail
@@ -286,8 +294,12 @@ test.ph <- cox.zph(model_gail)
 y <- test.ph$y
 colnames(y) <- plot_varnames(colnames(y))
 test.ph$y <- y
+
+# Supplementary Figure 4
+tiff(file.path(config$outputs$figures$final,"SuppFigureS4.tiff"), units="in", width=8, height=5, res=300)
 ggcoxzph(test.ph, point.alpha=0.04, var=c("Gail 10yr risk", "PRS_BC"),
          caption="Model also includes genetic array and first 4 principal components of genetic ancestry, plots omitted.")
+dev.off()
 
 # Test data
 
@@ -464,7 +476,7 @@ ft
 
 # Calibration - code adapted from Ruthie's Project and Xiaonan's diabetes work with Leicester score
 
-cal_plot <- function(data, var="TC_10risk", title, xlim=c(0, 0.1), ylim=c(0, 0.1)){
+cal_plot <- function(data, var="TC_10risk", title, xlim=c(0,0.1), ylim=c(0,0.1)){
 
   # First group into deciles of predicted risk
   deciles <- quantile(data[[var]], probs = seq(0, 1, 0.1))
@@ -509,7 +521,7 @@ cal_plot <- function(data, var="TC_10risk", title, xlim=c(0, 0.1), ylim=c(0, 0.1
     labs(x="Predicted risk",
          y="Observed risk",
          title=title) +
-    annotate("text", x=0.05, y = 0.02, size=10/.pt,
+    annotate("text", x=0.07, y = 0.015, size=10/.pt,
              label=paste0("Slope = ", pretty_dp(cal_slope, 3), 
                           "\nIntercept = ", pretty_dp(cal_intercept, 3))) +
     scale_color_manual(name = "Legend",             # legend name
@@ -518,7 +530,7 @@ cal_plot <- function(data, var="TC_10risk", title, xlim=c(0, 0.1), ylim=c(0, 0.1
     theme(legend.justification = c(0, 1), legend.position = c(0, 1)) +
     theme(plot.title = element_text(size=10))
   
-  ggsave(file.path(config$outputs$figures, paste0(var, "_calibration_plot10.jpg")), 
+  ggsave(file.path(config$outputs$figures$interim, paste0(var, "_calibration_plot10.jpg")), 
        scale=0.6, width=25, height=15, units="cm")
   
   output <- list(plot=plot, cal_slope=cal_slope, cal_intercept=cal_intercept)
@@ -548,6 +560,8 @@ gail_prs_cal <- cal_plot(data=test_data, var="gail_prs_10risk",
 legend <- get_legend(TC_train$plot)
 # 3. Remove the legend
 #+++++++++++++++++++++++
+# Figure 1
+tiff(file.path(config$outputs$figures$final,"Figure1.tiff"), units="in", width=8, height=10, res=300)
 gridExtra::grid.arrange(TC_train$plot + theme(legend.position="none"), 
                         gail_train$plot + theme(legend.position="none"), 
                         legend, 
@@ -556,7 +570,8 @@ gridExtra::grid.arrange(TC_train$plot + theme(legend.position="none"),
                         NULL,
                         TC_prs_cal$plot + theme(legend.position="none"),
                         gail_prs_cal$plot + theme(legend.position="none"),
-                        ncol=3, widths=c(3.5, 3.5, 0.8))
+                        ncol=3, widths=c(3.5, 3.5, 1))
+dev.off()
 
 
 ```
@@ -585,11 +600,11 @@ td_roc_plot <- function(data, modelname, prsname, plotname,
   colnames(tROC_long) <- c("TP_9", "TP_10", "FP_9", "FP_10")
   tROC_df <- data.frame(tROC_long)
   tROC_df$Model <- factor(c(rep(paste0(modelname, " 10-yr risk"), times=dim(tROC[[1]][["TP"]])[1]),
-                     rep(paste0(prsname, " PRS"), times=dim(tROC[[2]][["TP"]])[1]),
-                     rep(paste0(modelname, " & PRS 10-yr risk"), times=dim(tROC[[3]][["TP"]])[1])),
+                     rep(prsname, times=dim(tROC[[2]][["TP"]])[1]),
+                     rep(paste0(modelname, " & PRS_BC 10-yr risk"), times=dim(tROC[[3]][["TP"]])[1])),
                      levels=c(paste0(modelname, " 10-yr risk"),
-                              paste0(prsname, " PRS"),
-                              paste0(modelname, " & PRS 10-yr risk")))
+                              prsname,
+                              paste0(modelname, " & PRS_BC 10-yr risk")))
   
   plot <- ggplot(tROC_df,aes(x=FP_10, y=TP_10, color=Model))+
     geom_line(linewidth=1) + style_roc() +
@@ -597,25 +612,27 @@ td_roc_plot <- function(data, modelname, prsname, plotname,
     xlab("False positive fraction") + ylab("True positive fraction") +
     scale_color_manual(name="Model",values = c("#F8766D","#00BA38", "#6193FF")) +
     labs(title =plotname, caption = "Dashed line is y=x")+
-    theme(legend.position = c(0.75, 0.15))
+    theme(legend.position = c(0.7, 0.15))
   
-  ggsave(file.path(config$outputs$figures, paste0("rocplot_", modelname, ".jpg")),
+  ggsave(file.path(config$outputs$figures$interim, paste0("rocplot_", modelname, ".jpg")),
        scale=0.7, width=25, height=15, units="cm")
 
   plot
 }
 
 # Tyrer-Cuzick
-TC_roc <- td_roc_plot(test_data, modelname="TC", prsname="Genomics plc", plotname="Tyrer-Cuzick",
+TC_roc <- td_roc_plot(test_data, modelname="Tyrer-Cuzick", prsname="PRS_BC", plotname="Tyrer-Cuzick",
          varlist=c("TC_10risk_cal", "PRS_bc_std", "TC_prs_10risk"))
 
 # Gail
-gail_roc <- td_roc_plot(test_data, modelname="Gail", prsname="Genomics plc", plotname="Gail",
+gail_roc <- td_roc_plot(test_data, modelname="Gail", prsname="PRS_BC", plotname="Gail",
          varlist=c("gail_10risk_cal", "PRS_bc_std", "gail_prs_10risk"))
 
+# Figure 2
+tiff(file.path(config$outputs$figures$final,"Figure2.tiff"), units="in", width=10, height=5, res=300)
 gridExtra::grid.arrange(TC_roc, gail_roc,
-                        ncol=2,
-                        top=paste0("Time-dependent ROC curves at 10 years follow up in test data (N=", nrow(test_data), ")"))
+                        ncol=2)
+dev.off()
 
 ```
 
@@ -750,7 +767,7 @@ dca_tc <- dca(TEU_BrCa_status ~ TC_10risk_cal + TC_prs_10risk,
   scale_color_manual(values = name_color)
 
 dca_tc
-ggsave(file.path(config$outputs$figures, "TC_DCA.png"), 
+ggsave(file.path(config$outputs$figures$interim, "TC_DCA.png"), 
        scale=0.7, width=25, height=15, units="cm")
 
 dca_gail <- dca(TEU_BrCa_status ~ gail_10risk_cal + gail_prs_10risk,
@@ -763,13 +780,13 @@ dca_gail <- dca(TEU_BrCa_status ~ gail_10risk_cal + gail_prs_10risk,
   scale_color_manual(values = name_color)
 
 dca_gail
-ggsave(file.path(config$outputs$figures, "gail_DCA.png"), 
+ggsave(file.path(config$outputs$figures$interim, "gail_DCA.png"), 
        scale=0.7, width=25, height=15, units="cm")
 
-gridExtra::grid.arrange(dca_tc, dca_gail,
-                        ncol=2,
-                        top=paste0("Decision curves for 10-year risk from models with and without PRS_BC in test data (N=",
-                                   nrow(test_data), ")"))
+# Figure 3
+tiff(file.path(config$outputs$figures$final,"Figure3.tiff"), units="in", width=10, height=5, res=300)
+gridExtra::grid.arrange(dca_tc, dca_gail, ncol=2)
+dev.off()
 
 # Interventions avoided
 ia_tc <- dca(TEU_BrCa_status ~ TC_10risk_cal + TC_prs_10risk, 
@@ -785,7 +802,7 @@ ia_tc <- dca(TEU_BrCa_status ~ TC_10risk_cal + TC_prs_10risk,
   scale_color_manual(values = name_color)
 
 ia_tc
-ggsave(file.path(config$outputs$figures, "TC_NIA.png"), 
+ggsave(file.path(config$outputs$figures$interim, "TC_NIA.png"), 
        scale=0.7, width=25, height=15, units="cm")
 
 ia_gail <- dca(TEU_BrCa_status ~ gail_10risk_cal + gail_prs_10risk,
@@ -802,13 +819,10 @@ ia_gail <- dca(TEU_BrCa_status ~ gail_10risk_cal + gail_prs_10risk,
   scale_color_manual(values = name_color)
 
 ia_gail
-ggsave(file.path(config$outputs$figures, "gail_NIA.png"), 
+ggsave(file.path(config$outputs$figures$interim, "gail_NIA.png"), 
        scale=0.7, width=25, height=15, units="cm")
 
-gridExtra::grid.arrange(ia_tc, ia_gail,
-                        ncol=2,
-                        top=paste0("Net interventions avoided per 100 women for 10-year risk from models with and without PRS_BC in test data (N=",
-                                   nrow(test_data), ")"))
+gridExtra::grid.arrange(ia_tc, ia_gail, ncol=2)
 
 ```
 
@@ -1003,10 +1017,11 @@ for (var in gail_varlist) {
 
 ```{r}
 
-facet_data <- test_data %>% select(TC_10risk_cal, TC_prs_10risk, TEU_BrCa_status) %>% 
+# Tyrer-Cuzick
+facet_tc <- test_data %>% select(TC_10risk_cal, TC_prs_10risk, TEU_BrCa_status) %>% 
   pivot_longer(cols=c(TC_10risk_cal, TC_prs_10risk)) 
 
-density_data <- facet_data %>%
+density_data_tc <- facet_tc %>%
   mutate(
     name = ifelse(TEU_BrCa_status == 0, paste0(name, "_control"), paste0(name, "_case")),
     Model = factor(name, 
@@ -1015,29 +1030,19 @@ density_data <- facet_data %>%
                    labels = c("Tyrer-Cuzick controls", "Tyrer-Cuzick cases",
                               "Tyrer-Cuzick with PRS_BC controls", "Tyrer-Cuzick with PRS_BC cases")))
 
-ggplot(density_data, 
+
+density_TC <- ggplot(density_data_tc, 
        aes(x=value, fill=Model)) + 
   geom_density(alpha=0.4, position="identity") +
-  ggtitle("Density plot of 10yr predicted risk by model in test data, split by cases and controls") +
   theme(legend.position = c(0.8, 0.8)) +
   xlim(0, 0.2) +
   geom_vline(xintercept=0.05)
-  
 
-ggsave(file.path(config$outputs$figures, "TC_density_10yrrisk.png"), 
-       scale=0.7, width=25, height=15, units="cm")
-
-
-
-
-```
-
-```{r}
-
-facet_data <- test_data %>% select(gail_10risk_cal, gail_prs_10risk, TEU_BrCa_status) %>% 
+# Gail
+facet_gail <- test_data %>% select(gail_10risk_cal, gail_prs_10risk, TEU_BrCa_status) %>% 
   pivot_longer(cols=c(gail_10risk_cal, gail_prs_10risk)) 
 
-density_data <- facet_data %>%
+density_data_gail <- facet_gail %>%
   mutate(
     name = ifelse(TEU_BrCa_status == 0, paste0(name, "_control"), paste0(name, "_case")),
     Model = factor(name, 
@@ -1046,24 +1051,20 @@ density_data <- facet_data %>%
                    labels = c("Gail controls", "Gail cases",
                               "Gail with PRS_BC controls", "Gail with PRS_BC cases")))
 
-ggplot(density_data, 
+density_gail <- ggplot(density_data_gail, 
        aes(x=value, fill=Model)) + 
   geom_density(alpha=0.4, position="identity") +
-  ggtitle("Density plot of 10yr predicted risk by model in test data, split by cases and controls") +
   theme(legend.position = c(0.8, 0.8)) +
   xlim(0, 0.2) +
   geom_vline(xintercept=0.05)
-  
+ 
 
-ggsave(file.path(config$outputs$figures, "Gail_density_10yrrisk.png"), 
-       scale=0.7, width=25, height=15, units="cm")
-
-
+# Supplementary Figure 5
+tiff(file.path(config$outputs$figures$final,"SuppFigureS5.tiff"), units="in", width=8, height=10, res=300)
+gridExtra::grid.arrange(density_TC, density_gail, nrow=2)
+dev.off()
 
 ```
-
-
-
 
 # Fixed risk threshold
 
