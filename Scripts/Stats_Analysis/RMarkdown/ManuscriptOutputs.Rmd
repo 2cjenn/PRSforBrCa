@@ -570,7 +570,8 @@ gridExtra::grid.arrange(TC_train$plot + theme(legend.position="none"),
                         NULL,
                         TC_prs_cal$plot + theme(legend.position="none"),
                         gail_prs_cal$plot + theme(legend.position="none"),
-                        ncol=3, widths=c(3.5, 3.5, 1))
+                        ncol=3, widths=c(3.5, 3.5, 1),
+                        top = grid::grid.text("Figure 1", x = 0, hjust = 0))
 dev.off()
 
 
@@ -631,7 +632,8 @@ gail_roc <- td_roc_plot(test_data, modelname="Gail", prsname="PRS_BC", plotname=
 # Figure 2
 tiff(file.path(config$outputs$figures$final,"Figure2.tiff"), units="in", width=10, height=5, res=300)
 gridExtra::grid.arrange(TC_roc, gail_roc,
-                        ncol=2)
+                        ncol=2,
+                        top = grid::grid.text("Figure 2", x = 0, hjust = 0))
 dev.off()
 
 ```
@@ -785,7 +787,8 @@ ggsave(file.path(config$outputs$figures$interim, "gail_DCA.png"),
 
 # Figure 3
 tiff(file.path(config$outputs$figures$final,"Figure3.tiff"), units="in", width=10, height=5, res=300)
-gridExtra::grid.arrange(dca_tc, dca_gail, ncol=2)
+gridExtra::grid.arrange(dca_tc, dca_gail, ncol=2,
+                        top = grid::grid.text("Figure 3", x = 0, hjust = 0))
 dev.off()
 
 # Interventions avoided
